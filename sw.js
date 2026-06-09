@@ -1,12 +1,12 @@
 const CACHE = "fitplan-v1";
 const CORE = [
-  "/",
-  "/index.html",
-  "/styles.css",
-  "/app.js",
-  "/assets/fitplan-logo.svg",
-  "/assets/workout-banner.jpg",
-  "/assets/meal-thumb.jpg"
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./assets/fitplan-logo.svg",
+  "./assets/workout-banner.jpg",
+  "./assets/meal-thumb.jpg"
 ];
 
 self.addEventListener("install", event => {
