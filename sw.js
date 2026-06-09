@@ -1,1 +1,33 @@
-if(!self.define){let e,s={};const n=(n,i)=>(n=new URL(n+".js",i).href,s[n]||new Promise(s=>{if("document"in self){const e=document.createElement("script");e.src=n,e.onload=s,document.head.appendChild(e)}else e=n,importScripts(n),s()}).then(()=>{let e=s[n];if(!e)throw new Error(`Module ${n} didn’t register its module`);return e}));self.define=(i,a)=>{const t=e||("document"in self?document.currentScript.src:"")||location.href;if(s[t])return;let o={};const r=e=>n(e,t),l={module:{uri:t},exports:o,require:r};s[t]=Promise.all(i.map(e=>l[e]||r(e))).then(e=>(a(...e),o))}}define(["./workbox-5b3f2944"],function(e){"use strict";self.skipWaiting(),e.clientsClaim(),e.precacheAndRoute([{url:"offline.html",revision:"eb4494999d9abf0b83f9ec1ee5702fe4"},{url:"manifest.json",revision:"870dfb3db3641534884984a9bc36eea1"},{url:"index.html",revision:"bd4b71f84450d1a0bbef88d34d6f2d3d"},{url:"icons.svg",revision:"3b4fcfcf393eca4d264dca4a4663bc37"},{url:"favicon.svg",revision:"7e840862161341271697daa99a40d76b"},{url:"assets/js/WorkoutPlanner-DGzMkbhw.js",revision:null},{url:"assets/js/workbox-window.prod.es5-BLTxx3vi.js",revision:null},{url:"assets/js/useAIStore-LclDsb5C.js",revision:null},{url:"assets/js/NutritionTracker-DqcYHHGr.js",revision:null},{url:"assets/js/index-CJizOZHq.js",revision:null},{url:"assets/js/EquipmentManager-BDhfWKkF.js",revision:null},{url:"assets/js/BodyTracking-o9mFaqDn.js",revision:null},{url:"assets/js/baiduAI-2XzOxsW6.js",revision:null},{url:"assets/js/APISettings-Umkl_8IL.js",revision:null},{url:"assets/css/index-DZ2cDa4o.css",revision:null},{url:"manifest.webmanifest",revision:"6f62475a0b8179fd8d71540b48f4db65"}],{}),e.cleanupOutdatedCaches(),e.registerRoute(new e.NavigationRoute(e.createHandlerBoundToURL("index.html"),{denylist:[/^\/api\//]})),e.registerRoute(/^https:\/\/(api\.|aip\.)baidubce\.com/i,new e.NetworkFirst({cacheName:"baidu-api-cache",networkTimeoutSeconds:10,plugins:[new e.ExpirationPlugin({maxEntries:50,maxAgeSeconds:3600}),new e.CacheableResponsePlugin({statuses:[0,200]})]}),"GET"),e.registerRoute(/\.(?:png|jpg|jpeg|svg|gif|webp)$/,new e.CacheFirst({cacheName:"static-images",plugins:[new e.ExpirationPlugin({maxEntries:100,maxAgeSeconds:2592e3})]}),"GET"),e.registerRoute(/^https:\/\/media\.tenor\.com/i,new e.CacheFirst({cacheName:"gif-animations",plugins:[new e.ExpirationPlugin({maxEntries:50,maxAgeSeconds:604800})]}),"GET"),e.registerRoute(/^https:\/\/fonts\.(?:googleapis|gstatic)\.com/i,new e.StaleWhileRevalidate({cacheName:"google-fonts",plugins:[new e.ExpirationPlugin({maxEntries:30,maxAgeSeconds:31536e3}),new e.CacheableResponsePlugin({statuses:[0,200]})]}),"GET"),e.registerRoute(/^https:\/\/(cdn\.|esm\.sh|unpkg\.com)/i,new e.StaleWhileRevalidate({cacheName:"cdn-cache",plugins:[new e.ExpirationPlugin({maxEntries:50,maxAgeSeconds:604800})]}),"GET"),e.registerRoute(/\/data\/.*\.json$/,new e.StaleWhileRevalidate({cacheName:"data-cache",plugins:[new e.ExpirationPlugin({maxEntries:20,maxAgeSeconds:86400})]}),"GET")});
+const CACHE = "fitplan-v1";
+const CORE = [
+  "/",
+  "/index.html",
+  "/styles.css",
+  "/app.js",
+  "/assets/fitplan-logo.svg",
+  "/assets/workout-banner.jpg",
+  "/assets/meal-thumb.jpg"
+];
+
+self.addEventListener("install", event => {
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)));
+});
+
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+  );
+});
+
+self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET" || event.request.url.includes("/api/")) return;
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        const copy = response.clone();
+        caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
+  );
+});

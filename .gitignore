@@ -1,0 +1,12 @@
+dist/
+node_modules/
+.wrangler/
+fitplan-github-deploy/
+fitplan-github-deploy.zip
+__pycache__/
+*.pyc
+.dev.vars
+.env
+check-*.png
+home-check.png
+assets/source-contact.jpg
