@@ -3,6 +3,7 @@ import { cp, mkdir, rm } from "node:fs/promises";
 const files = [
   "index.html",
   "styles.css",
+  "exercise-library.js",
   "app.js",
   "manifest.webmanifest",
   "sw.js",

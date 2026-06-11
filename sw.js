@@ -1,8 +1,9 @@
-const CACHE = "fitplan-v1";
+const CACHE = "fitplan-v2";
 const CORE = [
   "./",
   "./index.html",
   "./styles.css",
+  "./exercise-library.js",
   "./app.js",
   "./assets/fitplan-logo.svg",
   "./assets/workout-banner.jpg",

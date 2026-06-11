@@ -178,6 +178,11 @@ button { border: 0; background: none; cursor: pointer; }
 .segmented { display: flex; background: var(--surface); border: 1px solid var(--line); margin-bottom: 16px; padding: 3px; }
 .segmented button { flex: 1; min-height: 40px; color: var(--muted); }
 .segmented .active { color: #071009; background: var(--green); font-weight: 800; }
+.plan-builder-entry { width: 100%; min-height: 76px; display: grid; grid-template-columns: 31px 1fr 32px 15px; gap: 10px; align-items: center; padding: 12px; margin-bottom: 12px; border: 1px solid #416343; background: linear-gradient(100deg, rgba(130,240,95,.11), var(--surface) 58%); text-align: left; }
+.plan-builder-entry > .icon:first-child { color: var(--green); }
+.plan-builder-entry > .icon:last-child { width: 14px; color: var(--muted); }
+.plan-builder-entry em { display: block; margin-top: 6px; color: var(--muted); font: normal 9px/1.3 sans-serif; }
+.plan-builder-entry strong { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--green); border-radius: 50%; color: var(--green); font-size: 12px; }
 
 .plan-overview, .progress-kpis { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 16px 0; margin-bottom: 16px; }
 .plan-overview > div, .progress-kpis > div { border-right: 1px solid var(--line); padding: 0 10px; min-width: 0; }
@@ -463,25 +468,9 @@ button { border: 0; background: none; cursor: pointer; }
 .setting-options button.active i { color: var(--green); border-color: var(--green); }
 
 .guide-sheet { padding-bottom: max(22px, env(safe-area-inset-bottom)); }
-.motion-demo { height: 225px; position: relative; overflow: hidden; background: #090d0f; border: 1px solid var(--line); }
-.motion-demo::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 44px, rgba(255,255,255,.025) 45px), repeating-linear-gradient(0deg, transparent 0 44px, rgba(255,255,255,.025) 45px); }
-.motion-demo > span { position: absolute; left: 10px; top: 10px; color: var(--green); font: 700 8px monospace; }
-.machine i { position: absolute; display: block; background: #505a60; }
-.machine i:nth-child(1) { left: 24%; top: 35px; width: 7px; height: 156px; }
-.machine i:nth-child(2) { left: 24%; top: 35px; width: 40%; height: 6px; }
-.machine i:nth-child(3) { left: 24%; bottom: 33px; width: 55%; height: 6px; }
-.athlete i { position: absolute; display: block; background: #d6dadb; transform-origin: top center; }
-.athlete .head { left: 54%; top: 57px; width: 24px; height: 24px; border-radius: 50%; }
-.athlete .body { left: calc(54% + 8px); top: 79px; width: 9px; height: 66px; border-radius: 5px; transform: rotate(8deg); }
-.athlete .arm { left: calc(54% + 10px); top: 85px; width: 7px; height: 58px; border-radius: 4px; animation: guideArm 4s cubic-bezier(.45,0,.55,1) infinite; }
-.athlete .leg { left: calc(54% + 9px); top: 139px; width: 8px; height: 62px; border-radius: 4px; transform: rotate(-18deg); }
-@keyframes guideArm { 0%,100% { transform: rotate(58deg); } 45%,55% { transform: rotate(-42deg); } }
-.motion-treadmill .athlete .leg, .motion-squat .athlete .leg { animation: guideLeg 1.2s ease-in-out infinite alternate; }
-.motion-pullup .athlete { animation: guidePullup 4s ease-in-out infinite; }
-.motion-swing .athlete .arm { animation: guideSwing 4s ease-in-out infinite; }
-@keyframes guideLeg { to { transform: rotate(24deg); } }
-@keyframes guidePullup { 45%,55% { transform: translateY(-30px); } }
-@keyframes guideSwing { 45%,55% { transform: rotate(-80deg); } }
+.equipment-video-demo { height: 225px; position: relative; overflow: hidden; background: #050708; border: 1px solid var(--line); }
+.equipment-video-demo video { width: 100%; height: 100%; object-fit: cover; }
+.equipment-video-demo > span { position: absolute; left: 10px; top: 10px; padding: 6px 8px; color: var(--green); background: rgba(3,7,5,.82); border-left: 2px solid var(--green); font: 700 8px monospace; pointer-events: none; }
 .guide-tabs { display: grid; grid-template-columns: repeat(3,1fr); margin-top: 13px; border-bottom: 1px solid var(--line); }
 .guide-tabs button { min-height: 42px; color: var(--muted); border-bottom: 2px solid transparent; }
 .guide-tabs button.active { color: var(--green); border-color: var(--green); }
@@ -514,4 +503,121 @@ button { border: 0; background: none; cursor: pointer; }
 
 @media (max-width: 430px) {
   #app { width: 100%; max-width: 100%; flex-basis: 100%; }
+}
+
+.library-summary {
+  min-height: 82px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  background: linear-gradient(105deg, rgba(130,240,95,.12), var(--surface) 52%);
+}
+.library-summary > div { display: flex; align-items: center; gap: 12px; }
+.library-summary > div > .icon { width: 30px; height: 30px; color: var(--green); }
+.library-summary b, .library-summary small, .library-summary strong { display: block; }
+.library-summary small { margin-top: 5px; color: var(--muted); font-size: 9px; }
+.library-summary strong { color: var(--green); font-size: 24px; text-align: right; }
+.library-summary strong small { font: 700 7px monospace; }
+.library-search { margin-bottom: 8px; }
+.muscle-tabs { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 9px; scrollbar-width: none; }
+.muscle-tabs button { flex: none; min-width: 58px; height: 38px; padding: 0 13px; color: var(--muted); border: 1px solid var(--line); }
+.muscle-tabs button.active { color: #071009; background: var(--green); border-color: var(--green); font-weight: 800; }
+.availability-toggle {
+  width: 100%;
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: 24px 1fr 26px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.availability-toggle > .icon { color: var(--muted); }
+.availability-toggle > i { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid #4d585f; border-radius: 50%; }
+.availability-toggle > i .icon { width: 15px; }
+.availability-toggle.active { border-color: #3f6c40; background: rgba(130,240,95,.06); }
+.availability-toggle.active > .icon, .availability-toggle.active > i { color: var(--green); border-color: var(--green); }
+.exercise-catalog { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; padding-bottom: 92px; }
+.catalog-card { position: relative; min-width: 0; border: 1px solid var(--line); background: var(--surface); overflow: hidden; }
+.catalog-card.selected { border-color: var(--green); box-shadow: inset 0 0 0 1px rgba(130,240,95,.2); }
+.catalog-preview { width: 100%; height: 128px; position: relative; display: block; overflow: hidden; }
+.catalog-preview img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.85) contrast(1.08); }
+.catalog-preview::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 55%, rgba(0,0,0,.72)); }
+.media-badge, .difficulty { position: absolute; z-index: 2; font: 700 7px monospace; }
+.media-badge { left: 8px; bottom: 8px; display: flex; align-items: center; gap: 4px; color: #fff; }
+.media-badge .icon { width: 13px; color: var(--green); }
+.difficulty { right: 7px; top: 7px; color: var(--green); background: rgba(5,9,7,.8); padding: 5px; }
+.catalog-copy { min-height: 105px; padding: 11px; }
+.catalog-copy h3 { font-size: 14px; padding-right: 26px; }
+.catalog-copy h3 small { font-size: 9px; }
+.catalog-copy p { margin-top: 8px; color: var(--muted); font: 600 8px/1.4 monospace; }
+.catalog-copy > button { display: flex; align-items: center; gap: 3px; margin-top: 10px; color: var(--green); font-size: 9px; }
+.catalog-copy > button .icon { width: 12px; }
+.exercise-add { position: absolute; z-index: 3; right: 8px; bottom: 61px; width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid #566169; border-radius: 50%; background: #101519; }
+.exercise-add .icon { width: 16px; }
+.exercise-add.active { color: #071009; background: var(--green); border-color: var(--green); }
+.unavailable { position: absolute; left: 0; top: 0; padding: 5px 7px; color: #0a0d0f; background: var(--amber); font: 800 7px monospace; }
+.library-actions { position: fixed; z-index: 12; left: 50%; bottom: 0; transform: translateX(-50%); width: min(100%,430px); display: grid; grid-template-columns: .9fr 1.3fr; gap: 8px; padding: 10px 16px max(12px,env(safe-area-inset-bottom)); background: rgba(7,10,12,.96); border-top: 1px solid var(--line); backdrop-filter: blur(18px); }
+.library-actions .primary-btn { margin: 0; }
+.empty-state { grid-column: 1 / -1; min-height: 180px; display: grid; place-items: center; align-content: center; gap: 10px; padding: 24px; color: var(--muted); border: 1px dashed var(--line); text-align: center; }
+.empty-state > .icon { color: var(--green); }
+.empty-state p { max-width: 240px; font-size: 10px; line-height: 1.5; }
+.empty-state button { color: var(--green); }
+
+.exercise-detail-sheet { padding-bottom: max(24px,env(safe-area-inset-bottom)); }
+.lesson-media { height: 278px; position: relative; overflow: hidden; border: 1px solid var(--line); background: #080b0d; cursor: pointer; }
+.lesson-media > video { width: 100%; height: 100%; object-fit: cover; background: #050708; }
+.lesson-kicker { position: absolute; left: 12px; top: 12px; padding: 6px 8px; color: var(--green); background: rgba(3,7,5,.82); border-left: 2px solid var(--green); font: 750 8px monospace; pointer-events: none; }
+.lesson-intro { display: grid; gap: 5px; padding: 11px 2px 2px; }
+.lesson-intro b { font-size: 14px; }
+.lesson-intro small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.motion-module { display: grid; grid-template-columns: 36px 1fr; gap: 10px; margin-top: 14px; padding: 14px; border: 1px solid var(--line); background: #0d1215; }
+.module-number { color: var(--green); font: 800 11px monospace; }
+.motion-module h3 { font-size: 17px; }
+.motion-module p { margin-top: 6px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.real-motion-loop { grid-column: 1 / -1; height: 190px; position: relative; overflow: hidden; margin-top: 5px; border: 1px solid #2e393f; background: #050708; }
+.real-motion-loop video { width: 100%; height: 100%; object-fit: cover; }
+.real-motion-loop span { position: absolute; left: 9px; top: 9px; padding: 6px 8px; color: var(--green); background: rgba(3,7,5,.82); border-left: 2px solid var(--green); font: 750 7px monospace; }
+.technique-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 13px; }
+.technique-columns section { padding: 12px; border: 1px solid var(--line); background: var(--surface); }
+.technique-columns section > b { color: var(--green); font-size: 11px; }
+.technique-columns ol, .technique-columns ul { margin: 10px 0 0; padding-left: 18px; }
+.technique-columns li { margin: 7px 0; color: #c5cbce; font-size: 10px; line-height: 1.45; }
+.technique-columns li::marker { color: var(--green); }
+.media-credit { margin-top: 10px; color: #626d73; font: 600 7px/1.4 monospace; text-align: center; }
+
+.workout-toolbar { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); margin: 12px 0; }
+.workout-toolbar button { min-height: 60px; display: grid; grid-template-columns: 22px 1fr 14px; align-items: center; gap: 7px; padding: 9px; text-align: left; border-right: 1px solid var(--line); }
+.workout-toolbar button:last-child { border: 0; }
+.workout-toolbar button > .icon:first-child { color: var(--green); }
+.workout-toolbar button > .icon:last-child { width: 13px; color: var(--muted); }
+.exercise-list > .exercise { min-height: 80px; display: grid; grid-template-columns: 42px 1fr; padding: 0; }
+.exercise-check { display: grid; place-items: center; border-right: 1px solid var(--line); }
+.exercise-open { min-width: 0; display: grid; grid-template-columns: 55px 1fr 52px 15px; gap: 8px; align-items: center; padding: 8px; text-align: left; }
+.exercise-open img { width: 55px; height: 55px; object-fit: cover; }
+
+.auth-hero { min-height: 210px; display: flex; align-items: flex-end; gap: 15px; padding: 22px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.auth-hero > .icon { width: 54px; height: 54px; color: var(--green); }
+.auth-hero h1 { font-size: 25px; }
+.auth-hero p { margin-top: 12px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.auth-secondary { width: 100%; margin-top: 9px; }
+.local-data-note { display: flex; gap: 10px; padding: 13px; margin-top: 14px; color: var(--muted); border-left: 2px solid var(--green); background: var(--surface); }
+.local-data-note .icon { width: 18px; color: var(--green); }
+.local-data-note p { font-size: 10px; line-height: 1.5; }
+.cloud-state { display: flex; align-items: center; gap: 5px; color: var(--green); font: 700 8px monospace; }
+.cloud-state .icon { width: 15px; }
+.auth-sheet form { display: grid; gap: 12px; }
+.auth-sheet label > span { display: block; margin-bottom: 6px; color: var(--muted); font: 700 8px monospace; }
+.auth-sheet input { width: 100%; height: 50px; padding: 0 13px; color: var(--text); border: 1px solid var(--line); background: var(--surface); outline: 0; border-radius: 0; }
+.auth-sheet input:focus { border-color: var(--green); }
+.auth-switch { width: 100%; padding: 17px 0; color: var(--green); font-size: 11px; }
+
+@media (max-width: 365px) {
+  .exercise-catalog { grid-template-columns: 1fr; }
+  .catalog-preview { height: 154px; }
 }

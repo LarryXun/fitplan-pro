@@ -48,6 +48,13 @@ const state = {
     targetMuscles: [],
   },
   equipmentGuide: null,
+  user: null,
+  authMode: "login",
+  authBusy: false,
+  exerciseFilter: { muscle: "all", equipment: "available", query: "" },
+  selectedExercises: new Set(saved.selectedExercises || ["bench-press", "seated-row", "rear-delt-raise", "front-squat", "romanian-deadlift"]),
+  exerciseDetail: null,
+  cloudReady: false,
   ingredients: saved.ingredients || [
     { name: "鸡胸肉", en: "Chicken Breast", amount: "150 g", kcal: 248 },
     { name: "藜麦", en: "Quinoa", amount: "80 g", kcal: 120 },
@@ -84,6 +91,10 @@ const icons = {
   more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   refresh: '<path d="M20 7h-5V2M4 17h5v5"/><path d="M5.5 9A7 7 0 0 1 17 5l3 2M18.5 15A7 7 0 0 1 7 19l-3-2"/>',
   logout: '<path d="M10 17l5-5-5-5M15 12H3M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/>',
+  library: '<path d="M4 5a2 2 0 0 1 2-2h5v18H6a2 2 0 0 1-2-2zM20 5a2 2 0 0 0-2-2h-5v18h5a2 2 0 0 0 2-2z"/>',
+  filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
+  video: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/>',
+  cloud: '<path d="M17.5 19H7a5 5 0 1 1 1-9.9A6 6 0 0 1 19.7 11 4 4 0 0 1 17.5 19z"/>',
 };
 
 function icon(name, cls = "") {
@@ -106,6 +117,7 @@ function persist() {
     customEquipment: state.customEquipment,
     ingredients: state.ingredients,
     planStarted: state.planStarted,
+    selectedExercises: [...state.selectedExercises],
   }));
 }
 
@@ -308,6 +320,7 @@ function innerTop(zh, en, back = "home") {
 
 function plan() {
   return `<section class="screen">${innerTop("训练计划", "Training Plan")}
+    <button class="plan-builder-entry" data-route="exercise-library">${icon("library")}<span>${dual("自主选择训练动作","Build Your Own Workout","b")}<em>${text("根据已有器械筛选并组合动作","Filter and combine exercises by equipment")}</em></span><strong>${state.selectedExercises.size}</strong>${icon("arrow")}</button>
     <div class="segmented"><button data-plan-period="week" class="${state.planPeriod === "week" ? "active" : ""}">${text("周计划", "Weekly")}</button><button data-plan-period="month" class="${state.planPeriod === "month" ? "active" : ""}">${text("月计划", "Monthly")}</button></div>
     <div class="plan-body">${planBody()}</div>${nav()}
   </section>`;
@@ -450,7 +463,8 @@ function goalSetup() {
 
 const equipmentItems = [
   ["哑铃","Dumbbells"],["杠铃","Barbell"],["卧推凳","Bench"],["跑步机","Treadmill"],
-  ["拉力器","Resistance Bands"],["引体向上架","Pull-up Bar"],["壶铃","Kettlebell"],["史密斯机","Smith Machine"],
+  ["拉力器","Cable Machine"],["引体向上架","Pull-up Bar"],["壶铃","Kettlebell"],["史密斯机","Smith Machine"],
+  ["腿举机","Leg Press"],
 ];
 
 const equipmentGuides = {
@@ -523,14 +537,17 @@ function equipmentSheet() {
 function guideSheet() {
   if (state.sheet !== "equipment-guide" || !state.equipmentGuide) return "";
   const guide = state.equipmentGuide;
+  const equipmentKey = equipmentKeyMap[guide.name];
+  const demo = exerciseLibrary.find(item => item.equipment === equipmentKey)
+    || exerciseLibrary.find(item => availableEquipmentKeys().has(item.equipment))
+    || exerciseLibrary[0];
   return `<div class="sheet-layer ${debugParams.get("sheet") === state.sheet ? "open" : ""}" data-close-sheet>
     <section class="bottom-sheet guide-sheet" role="dialog" aria-modal="true">
       <div class="sheet-handle"></div>
-      <header class="sheet-header"><div>${dual(guide.name, guide.en, "h2")}<p>${text("器械使用教学 · 连续动作演示","Equipment tutorial · motion demo")}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
-      <div class="motion-demo motion-${guide.motion}">
-        <div class="machine"><i></i><i></i><i></i></div>
-        <div class="athlete"><i class="head"></i><i class="body"></i><i class="arm"></i><i class="leg"></i></div>
-        <span>LOOP · 4 SEC</span>
+      <header class="sheet-header"><div>${dual(guide.name, guide.en, "h2")}<p>${text("器械使用教学 · 真人动作演示","Equipment tutorial · real movement demo")}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
+      <div class="equipment-video-demo">
+        <video src="${demo.videoUrl}" poster="${demo.image}" muted loop autoplay playsinline controls preload="metadata"></video>
+        <span>${text("示例动作","EXAMPLE")} · ${state.language === "zh" ? demo.zh : demo.en}</span>
       </div>
       <div class="guide-tabs"><button class="active" data-guide-tab="steps">${text("使用步骤","Steps")}</button><button data-guide-tab="mistakes">${text("常见错误","Mistakes")}</button><button data-guide-tab="muscles">${text("目标肌群","Muscles")}</button></div>
       <div class="guide-content">
@@ -611,9 +628,205 @@ function food() {
   </section>`;
 }
 
+const exerciseLibrary = window.FITPLAN_EXERCISES || [];
+const validExerciseIds = new Set(exerciseLibrary.map(item => item.id));
+state.selectedExercises = new Set([...state.selectedExercises].filter(id => validExerciseIds.has(id)));
+if (!state.selectedExercises.size) {
+  state.selectedExercises = new Set(["bench-press", "seated-row", "rear-delt-raise", "front-squat", "romanian-deadlift"]);
+}
+if (debugParams.get("exercise")) {
+  state.exerciseDetail = exerciseLibrary.find(item => item.id === debugParams.get("exercise")) || null;
+  if (state.exerciseDetail) state.sheet = "exercise-detail";
+}
+const muscleLabels = {
+  all: ["全部", "All"],
+  chest: ["胸部", "Chest"],
+  back: ["背部", "Back"],
+  shoulders: ["肩部", "Shoulders"],
+  legs: ["腿部", "Legs"],
+  glutes: ["臀部", "Glutes"],
+  core: ["核心", "Core"],
+  cardio: ["有氧", "Cardio"],
+};
+
+const equipmentKeyMap = {
+  "哑铃": "dumbbell",
+  "杠铃": "barbell",
+  "卧推凳": "bench",
+  "跑步机": "treadmill",
+  "拉力器": "cable",
+  "弹力带": "bands",
+  "引体向上架": "pull-up-bar",
+  "壶铃": "kettlebell",
+  "史密斯机": "smith-machine",
+  "腿举机": "leg-press",
+};
+
+function availableEquipmentKeys() {
+  const keys = new Set(["bodyweight"]);
+  state.equipment.forEach(name => {
+    const key = equipmentKeyMap[name];
+    if (key) keys.add(key);
+    const custom = state.customEquipment.find(item => item.name === name);
+    if (custom?.equipmentKey) keys.add(custom.equipmentKey);
+  });
+  return keys;
+}
+
+function filteredExercises() {
+  const query = state.exerciseFilter.query.trim().toLowerCase();
+  const equipment = availableEquipmentKeys();
+  return exerciseLibrary.filter(item => {
+    const muscleMatch = state.exerciseFilter.muscle === "all" || item.muscle === state.exerciseFilter.muscle;
+    const equipmentMatch = state.exerciseFilter.equipment !== "available" || equipment.has(item.equipment);
+    const queryMatch = !query || `${item.zh} ${item.en}`.toLowerCase().includes(query);
+    return muscleMatch && equipmentMatch && queryMatch;
+  });
+}
+
+function exerciseLibraryScreen() {
+  const items = filteredExercises();
+  return `<section class="screen exercise-library-screen">${innerTop("动作库", "Exercise Library", state.previousRoute)}
+    <section class="library-summary">
+      <div>${icon("library")}<span><b>${text("自主编排训练", "Build Your Workout")}</b><small>${text("按肌群和已有器械筛选", "Filter by muscle and available equipment")}</small></span></div>
+      <strong>${state.selectedExercises.size}<small>${text("已选择", "SELECTED")}</small></strong>
+    </section>
+    <label class="search-box library-search">${icon("search")}<input id="exercise-search" value="${escapeHtml(state.exerciseFilter.query)}" placeholder="${text("搜索动作名称", "Search exercises")}"></label>
+    <div class="muscle-tabs">${Object.entries(muscleLabels).map(([key, labels]) => `<button data-muscle="${key}" class="${state.exerciseFilter.muscle === key ? "active" : ""}">${text(labels[0], labels[1])}</button>`).join("")}</div>
+    <button class="availability-toggle ${state.exerciseFilter.equipment === "available" ? "active" : ""}" data-availability>
+      ${icon("filter")}<span>${dual("仅显示现有器械可做", "Available Equipment Only", "b")}</span><i>${state.exerciseFilter.equipment === "available" ? icon("check") : ""}</i>
+    </button>
+    <div class="exercise-catalog">${items.length ? items.map(exerciseCard).join("") : `<div class="empty-state">${icon("filter")}<b>${text("没有匹配动作", "No matching exercises")}</b><p>${text("切换肌群或关闭器械限制。", "Change the muscle group or equipment filter.")}</p></div>`}</div>
+    <div class="library-actions">
+      <button class="secondary-btn" data-generate-from-equipment>${icon("refresh")} ${text("按器械推荐", "Auto Select")}</button>
+      <button class="primary-btn" data-use-selection>${icon("check")} ${text(`使用 ${state.selectedExercises.size} 个动作`, `Use ${state.selectedExercises.size} Exercises`)}</button>
+    </div>
+  </section>`;
+}
+
+function exerciseCard(item) {
+  const selected = state.selectedExercises.has(item.id);
+  const available = availableEquipmentKeys().has(item.equipment);
+  return `<article class="catalog-card ${selected ? "selected" : ""}">
+    <button class="catalog-preview" data-exercise-detail="${item.id}">
+      <img src="${item.image}" alt="${item.en}">
+      <span class="media-badge">${icon("video")} ${text("视频 + 循环", "Video + Loop")}</span>
+      <span class="difficulty">${item.difficulty.toUpperCase()}</span>
+    </button>
+    <div class="catalog-copy">
+      ${dual(item.zh, item.en, "h3")}
+      <p>${text(muscleLabels[item.muscle]?.[0] || item.muscle, muscleLabels[item.muscle]?.[1] || item.muscle)} · ${equipmentLabel(item.equipment)} · ${item.sets}</p>
+      <button data-exercise-detail="${item.id}">${text("查看动作要点", "View Technique")} ${icon("arrow")}</button>
+    </div>
+    <button class="exercise-add ${selected ? "active" : ""}" data-toggle-exercise="${item.id}" aria-label="${text("选择动作", "Select exercise")}">
+      ${selected ? icon("check") : icon("plus")}
+    </button>
+    ${available ? "" : `<span class="unavailable">${text("缺少器械", "Equipment missing")}</span>`}
+  </article>`;
+}
+
+function equipmentLabel(key) {
+  const labels = {
+    dumbbell: ["哑铃", "Dumbbell"], barbell: ["杠铃", "Barbell"], cable: ["拉力器", "Cable"],
+    bodyweight: ["自重", "Bodyweight"], treadmill: ["跑步机", "Treadmill"],
+    kettlebell: ["壶铃", "Kettlebell"], "smith-machine": ["史密斯机", "Smith Machine"],
+    "pull-up-bar": ["引体向上架", "Pull-up Bar"], "leg-press": ["腿举机", "Leg Press"]
+  };
+  const label = labels[key] || [key, key];
+  return text(label[0], label[1]);
+}
+
+function exerciseDetailSheet() {
+  if (state.sheet !== "exercise-detail" || !state.exerciseDetail) return "";
+  const item = state.exerciseDetail;
+  const selected = state.selectedExercises.has(item.id);
+  const steps = state.language === "zh" ? item.stepsZh : item.stepsEn;
+  const mistakes = state.language === "zh" ? item.mistakesZh : item.mistakesEn;
+  return `<div class="sheet-layer ${debugParams.get("sheet") === state.sheet ? "open" : ""}" data-close-sheet>
+    <section class="bottom-sheet exercise-detail-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <header class="sheet-header"><div>${dual(item.zh, item.en, "h2")}<p>${equipmentLabel(item.equipment)} · ${item.sets} · ${item.rest}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
+      <div class="lesson-media">
+        <video src="${item.videoUrl}" poster="${item.image}" controls playsinline webkit-playsinline preload="metadata"></video>
+        <span class="lesson-kicker">01 · ${text("动作讲解", "TECHNIQUE LESSON")}</span>
+      </div>
+      <div class="lesson-intro"><b>${text("真人动作示范", "Real Movement Demo")}</b><small>${text("先完整看一遍，再关注起始位、发力轨迹和回程控制。", "Watch once, then review setup, drive and the controlled return.")}</small></div>
+      <section class="motion-module">
+        <div class="module-number">02</div>
+        <div>${dual("循环动作演示", "Looping Motion", "h3")}<p>${text("静音循环播放，训练时可快速确认动作轨迹。", "Muted loop for a quick technique check during training.")}</p></div>
+        <div class="real-motion-loop"><video src="${item.videoUrl}" poster="${item.image}" muted loop autoplay playsinline webkit-playsinline preload="metadata"></video><span>LOOP · REAL MOTION</span></div>
+      </section>
+      <div class="technique-columns">
+        <section><b>${text("动作步骤", "Technique")}</b><ol>${steps.map(step => `<li>${step}</li>`).join("")}</ol></section>
+        <section><b>${text("常见错误", "Avoid")}</b><ul>${mistakes.map(step => `<li>${step}</li>`).join("")}</ul></section>
+      </div>
+      <p class="media-credit">${text("动作媒体", "Exercise media")}: ${escapeHtml(item.author)} · ${item.license} · wger</p>
+      <button class="primary-btn" data-toggle-exercise="${item.id}">${icon(selected ? "check" : "plus")} ${text(selected ? "已加入当前训练" : "加入当前训练", selected ? "Added to Workout" : "Add to Workout")}</button>
+    </section>
+  </div>`;
+}
+
+function workoutV2() {
+  const chosen = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+  return `<section class="screen workout-screen">${innerTop("训练详情","Workout Detail",state.previousRoute)}
+    <article class="detail-hero"><img src="${assets.workoutBanner}" alt="Back strength workout"><div class="photo-shade"></div><div>${dual("自定义力量训练","Custom Strength","h1")}<span>${chosen.length} EXERCISES · EQUIPMENT ADAPTED</span></div></article>
+    <div class="workout-toolbar"><button data-route="exercise-library">${icon("library")}<span>${dual("选择动作","Choose Exercises","b")}</span>${icon("arrow")}</button><button data-generate-from-equipment>${icon("refresh")}<span>${dual("按器械重排","Adapt to Equipment","b")}</span>${icon("arrow")}</button></div>
+    <section class="detail-metrics">${metric("clock","训练时长","Duration",`${Math.max(25, chosen.length * 8)} min`)}${metric("flame","预计消耗","Est. Calories",String(chosen.length * 75))}${metric("activity","动作数量","Exercises",String(chosen.length))}</section>
+    <section class="exercise-list">${sectionTitle("训练动作","Exercises",`<span>${state.completedExercises.size}/${chosen.length}</span>`)}
+      ${chosen.map((item, i) => `<div class="exercise ${state.completedExercises.has(item.id) ? "done" : ""}">
+        <button class="exercise-check" data-complete-exercise="${item.id}"><span class="exercise-index">${state.completedExercises.has(item.id) ? icon("check") : i + 1}</span></button>
+        <button class="exercise-open" data-exercise-detail="${item.id}"><img src="${item.image}" alt="${item.en}"><span class="exercise-name">${dual(item.zh,item.en,"b")}<em>${item.sets}</em></span><span class="rest">${text("休息","REST")}<b>${item.rest}</b></span>${icon("arrow")}</button>
+      </div>`).join("") || `<div class="empty-state">${icon("library")}<b>${text("还没有选择动作","No exercises selected")}</b><button data-route="exercise-library">${text("打开动作库","Open Library")}</button></div>`}
+    </section>
+    <div class="sticky-actions"><button class="secondary-btn" data-route="exercise-library">${icon("plus")} ${text("编辑动作","Edit")}</button><button class="primary-btn" data-start-workout>${icon(state.activeWorkout?"check":"play")} ${text(state.activeWorkout?"结束并保存":"开始训练",state.activeWorkout?"Finish & Save":"Start Workout")}</button></div>
+  </section>`;
+}
+
+function profileV2() {
+  if (!state.user) {
+    return `<section class="screen">${statusBar()}${sectionTitle("我的", "Profile")}
+      <section class="auth-hero">${icon("cloud")}<span>${dual("登录后启用云端记录", "Sign In for Cloud Sync", "h1")}<p>${text("身体数据、器械、训练计划、训练记录和饮食记录会保存到你的账户。", "Your profile, equipment, plans, workouts and meals will be stored securely.")}</p></span></section>
+      <button class="primary-btn" data-open-auth="login">${text("登录", "Sign In")}</button>
+      <button class="secondary-btn auth-secondary" data-open-auth="register">${text("创建免费账户", "Create Free Account")}</button>
+      <section class="local-data-note">${icon("activity")}<p>${text("当前本机数据不会丢失；首次登录后会自动同步。", "Current local data stays available and syncs after your first sign-in.")}</p></section>
+      ${nav()}
+    </section>`;
+  }
+  return `<section class="screen">${statusBar()}${sectionTitle("我的", "Profile", `<span class="cloud-state">${icon("cloud")} ${text("已同步","SYNCED")}</span>`)}
+    <section class="profile-panel"><div class="profile-main"><img src="${assets.avatar}" alt="${escapeHtml(state.user.name)}"><div>${dual(`你好，${state.user.name}`, `Hi, ${state.user.name}`, "h1")}<p>${escapeHtml(state.user.email)}</p></div><button class="utility-btn" data-route="setup">${icon("edit")}</button></div><div class="profile-stats"><div><small>${text("当前目标","GOAL")}</small><b class="green">${text("减脂","FAT LOSS")}</b></div><div><small>${text("训练天数","DAYS")}</small><b>${state.days} / WEEK</b></div><div><small>${text("数据状态","DATA")}</small><b>${text("云端","CLOUD")}</b></div></div></section>
+    <section class="settings-list">
+      <button data-setting="language">${icon("sliders")}<span>${dual("语言","Language","b")}</span><em>${state.language === "zh" ? "简体中文" : "English"}</em>${icon("arrow")}</button>
+      <button data-setting="units">${icon("activity")}<span>${dual("单位","Units","b")}</span><em>${state.units === "metric" ? "kg, cm" : "lb, ft"}</em>${icon("arrow")}</button>
+      <button data-route="exercise-library">${icon("library")}<span>${dual("我的动作","My Exercises","b")}</span><em>${state.selectedExercises.size}</em>${icon("arrow")}</button>
+    </section>
+    <button class="equipment-summary" data-route="equipment"><div>${icon("dumbbell")}<span>${dual("我的器械","My Equipment","b")}<em>${state.equipment.size} ${text("件已添加","items")}</em></span></div>${icon("arrow")}</button>
+    <button class="logout" data-logout>${icon("logout")} ${text("退出登录","Sign Out")}</button>${nav()}
+  </section>`;
+}
+
+function authSheet() {
+  if (state.sheet !== "auth") return "";
+  const register = state.authMode === "register";
+  return `<div class="sheet-layer ${debugParams.get("sheet") === state.sheet ? "open" : ""}" data-close-sheet><section class="bottom-sheet auth-sheet" role="dialog" aria-modal="true">
+    <div class="sheet-handle"></div>
+    <header class="sheet-header"><div>${dual(register ? "创建账户" : "登录", register ? "Create Account" : "Sign In", "h2")}<p>${text("免费保存你的计划和训练数据。", "Save your plans and training data for free.")}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
+    <form id="auth-form">
+      ${register ? `<label><span>${text("姓名","Name")}</span><input name="name" autocomplete="name" required placeholder="Larry"></label>` : ""}
+      <label><span>${text("邮箱","Email")}</span><input name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label>
+      <label><span>${text("密码","Password")}</span><input name="password" type="password" minlength="8" autocomplete="${register ? "new-password" : "current-password"}" required placeholder="${text("至少 8 位","At least 8 characters")}"></label>
+      <button class="primary-btn" type="submit" ${state.authBusy ? "disabled" : ""}>${icon("cloud")} ${text(register ? "创建并同步" : "登录并同步", register ? "Create & Sync" : "Sign In & Sync")}</button>
+    </form>
+    <button class="auth-switch" data-auth-switch>${text(register ? "已有账户？登录" : "没有账户？免费注册", register ? "Already registered? Sign in" : "New here? Create an account")}</button>
+  </section></div>`;
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, character => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[character]);
+}
+
 function render() {
-  const screens = { home, plan, log: logScreen, progress, profile, setup, equipment, workout, food };
-  app.innerHTML = (screens[state.route] || home)() + equipmentSheet() + guideSheet() + settingsSheet();
+  const screens = { home, plan, log: logScreen, progress, profile: profileV2, setup, equipment, workout: workoutV2, food, "exercise-library": exerciseLibraryScreen };
+  app.innerHTML = (screens[state.route] || home)() + equipmentSheet() + guideSheet() + exerciseDetailSheet() + settingsSheet() + authSheet();
   bind();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
@@ -806,6 +1019,7 @@ function bind() {
     });
   });
   document.querySelector("[data-start-workout]")?.addEventListener("click", () => {
+    const wasActive = state.activeWorkout;
     state.activeWorkout = !state.activeWorkout;
     const button = document.querySelector("[data-start-workout]");
     button.innerHTML = `${icon(state.activeWorkout ? "check" : "play")} ${text(state.activeWorkout ? "训练中" : "开始训练", state.activeWorkout ? "In Progress" : "Start Workout")}`;
@@ -814,8 +1028,27 @@ function bind() {
       { transform: "scale(1)", filter: "brightness(1)" },
     ], { duration: 360, easing: "cubic-bezier(.22,1,.36,1)" });
     toast(text(state.activeWorkout ? "训练计时已开始" : "训练已完成", state.activeWorkout ? "Workout timer started" : "Workout completed"));
+    if (wasActive && state.user) {
+      saveWorkoutCloud().then(() => toast(text("训练记录已保存到云端", "Workout saved to cloud"))).catch(error => toast(error.message));
+    }
   });
-  document.querySelector("[data-save-food]")?.addEventListener("click", () => { persist(); toast(text("餐食记录已保存到本机", "Meal saved locally")); });
+  document.querySelector("[data-save-food]")?.addEventListener("click", async () => {
+    persist();
+    if (state.user) {
+      try {
+        await api("/api/food-logs", {
+          method: "POST",
+          body: {
+            mealNameZh: "AI 识别餐食",
+            mealNameEn: "AI Recognized Meal",
+            calories: state.ingredients.reduce((sum, item) => sum + Number(item.kcal || 0), 0),
+            ingredients: state.ingredients
+          }
+        });
+        toast(text("餐食记录已保存到云端", "Meal saved to cloud"));
+      } catch (error) { toast(error.message); }
+    } else toast(text("餐食记录已保存到本机", "Meal saved locally"));
+  });
   document.querySelector("#food-input")?.addEventListener("change", e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -850,7 +1083,248 @@ function bind() {
     render();
     toast(text("设置已更新","Settings updated"));
   }));
+  bindAdvanced();
   bindPlanStart();
+}
+
+function bindAdvanced() {
+  document.querySelectorAll("video[autoplay]").forEach(video => {
+    video.addEventListener("loadedmetadata", () => {
+      if (Number.isFinite(video.duration) && video.duration > 3 && video.currentTime < 0.5) {
+        video.currentTime = Math.min(2, video.duration * 0.2);
+      }
+      video.play().catch(() => {});
+    }, { once: true });
+  });
+  document.querySelector("#exercise-search")?.addEventListener("input", event => {
+    state.exerciseFilter.query = event.target.value;
+    const catalog = document.querySelector(".exercise-catalog");
+    if (catalog) catalog.innerHTML = filteredExercises().map(exerciseCard).join("") || `<div class="empty-state"><b>${text("没有匹配动作","No matching exercises")}</b></div>`;
+    bindAdvanced();
+  });
+  document.querySelectorAll("[data-muscle]").forEach(button => button.addEventListener("click", () => {
+    state.exerciseFilter.muscle = button.dataset.muscle;
+    render();
+  }));
+  document.querySelector("[data-availability]")?.addEventListener("click", () => {
+    state.exerciseFilter.equipment = state.exerciseFilter.equipment === "available" ? "all" : "available";
+    render();
+  });
+  document.querySelectorAll("[data-toggle-exercise]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const id = button.dataset.toggleExercise;
+    state.selectedExercises.has(id) ? state.selectedExercises.delete(id) : state.selectedExercises.add(id);
+    persist();
+    refreshExerciseSelectionUI(id);
+  }));
+  document.querySelectorAll("[data-exercise-detail]").forEach(button => button.addEventListener("click", () => {
+    state.exerciseDetail = exerciseLibrary.find(item => item.id === button.dataset.exerciseDetail);
+    state.sheet = "exercise-detail";
+    render();
+    requestAnimationFrame(() => document.querySelector(".sheet-layer")?.classList.add("open"));
+  }));
+  document.querySelectorAll("[data-complete-exercise]").forEach(button => button.addEventListener("click", () => {
+    const id = button.dataset.completeExercise;
+    state.completedExercises.has(id) ? state.completedExercises.delete(id) : state.completedExercises.add(id);
+    const row = button.closest(".exercise");
+    const selected = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+    row?.classList.toggle("done", state.completedExercises.has(id));
+    const index = row ? [...row.parentElement.querySelectorAll(".exercise")].indexOf(row) + 1 : 1;
+    const badge = button.querySelector(".exercise-index");
+    if (badge) badge.innerHTML = state.completedExercises.has(id) ? icon("check") : String(index);
+    const count = document.querySelector(".exercise-list .section-title > span");
+    if (count) animateNumber(count, `${state.completedExercises.size}/${selected.length}`);
+  }));
+  document.querySelectorAll("[data-generate-from-equipment]").forEach(button => button.addEventListener("click", () => {
+    const available = availableEquipmentKeys();
+    const balancedOrder = ["back", "chest", "legs", "shoulders", "core", "cardio"];
+    const recommended = [];
+    for (const muscle of balancedOrder) {
+      const matches = exerciseLibrary.filter(item => item.muscle === muscle && available.has(item.equipment));
+      recommended.push(...matches.slice(0, muscle === "back" ? 2 : 1));
+    }
+    state.selectedExercises = new Set(recommended.slice(0, Math.max(5, Math.min(8, recommended.length))).map(item => item.id));
+    persist();
+    render();
+    toast(text("已按现有器械生成训练动作", "Workout adapted to your equipment"));
+  }));
+  document.querySelector("[data-use-selection]")?.addEventListener("click", async () => {
+    if (!state.selectedExercises.size) {
+      toast(text("请至少选择一个动作", "Select at least one exercise"));
+      return;
+    }
+    if (state.user) {
+      try {
+        await saveCurrentPlanCloud();
+      } catch (error) {
+        toast(error.message);
+        return;
+      }
+    }
+    navigate("workout");
+  });
+  document.querySelectorAll("[data-open-auth]").forEach(button => button.addEventListener("click", () => {
+    state.authMode = button.dataset.openAuth;
+    state.sheet = "auth";
+    render();
+    requestAnimationFrame(() => document.querySelector(".sheet-layer")?.classList.add("open"));
+  }));
+  document.querySelector("[data-auth-switch]")?.addEventListener("click", () => {
+    state.authMode = state.authMode === "login" ? "register" : "login";
+    render();
+    requestAnimationFrame(() => document.querySelector(".sheet-layer")?.classList.add("open"));
+  });
+  document.querySelector("#auth-form")?.addEventListener("submit", handleAuth);
+  document.querySelector("[data-logout]")?.addEventListener("click", logoutCloud);
+}
+
+function refreshExerciseSelectionUI(id) {
+  const selected = state.selectedExercises.has(id);
+  document.querySelectorAll(`[data-toggle-exercise="${id}"]`).forEach(button => {
+    button.classList.toggle("active", selected);
+    button.innerHTML = icon(selected ? "check" : "plus");
+    if (button.closest(".exercise-detail-sheet")) {
+      button.innerHTML += ` ${text(selected ? "已加入当前训练" : "加入当前训练", selected ? "Added to Workout" : "Add to Workout")}`;
+    }
+  });
+  document.querySelectorAll(`[data-exercise-detail="${id}"]`).forEach(button => {
+    button.closest(".catalog-card")?.classList.toggle("selected", selected);
+  });
+  const count = document.querySelector(".library-summary strong");
+  if (count) count.innerHTML = `${state.selectedExercises.size}<small>${text("已选择", "SELECTED")}</small>`;
+  const useButton = document.querySelector("[data-use-selection]");
+  if (useButton) useButton.innerHTML = `${icon("check")} ${text(`使用 ${state.selectedExercises.size} 个动作`, `Use ${state.selectedExercises.size} Exercises`)}`;
+}
+
+async function handleAuth(event) {
+  event.preventDefault();
+  if (state.authBusy) return;
+  state.authBusy = true;
+  const form = new FormData(event.currentTarget);
+  const payload = Object.fromEntries(form.entries());
+  try {
+    const data = await api(`/api/auth/${state.authMode}`, { method: "POST", body: payload });
+    state.user = data.user;
+    state.sheet = null;
+    applyCloudUser(data.user);
+    await syncLocalData();
+    render();
+    toast(text("登录成功，数据已同步", "Signed in and synced"));
+  } catch (error) {
+    state.authBusy = false;
+    toast(error.message);
+  }
+}
+
+async function logoutCloud() {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+  state.user = null;
+  render();
+}
+
+async function loadCloudSession() {
+  try {
+    const data = await api("/api/auth/me");
+    state.user = data.user;
+    if (data.user) applyCloudUser(data.user);
+    state.cloudReady = true;
+    render();
+  } catch {
+    state.cloudReady = true;
+  }
+}
+
+function applyCloudUser(user) {
+  if (!user) return;
+  state.language = user.language || state.language;
+  state.units = user.units || state.units;
+  state.age = user.age || state.age;
+  state.weight = user.weightKg || state.weight;
+  state.goalWeight = user.goalWeightKg || state.goalWeight;
+  state.bodyFat = user.bodyFat || state.bodyFat;
+  state.goal = user.goal || state.goal;
+  state.days = user.trainingDays || state.days;
+  state.duration = user.workoutDuration || state.duration;
+  persist();
+}
+
+async function syncLocalData() {
+  if (!state.user) return;
+  await Promise.all([
+    api("/api/profile", {
+      method: "PATCH",
+      body: {
+        language: state.language, units: state.units, age: state.age, weightKg: state.weight,
+        goalWeightKg: state.goalWeight, bodyFat: state.bodyFat, goal: state.goal,
+        trainingDays: state.days, workoutDuration: state.duration
+      }
+    }),
+    api("/api/equipment", {
+      method: "PUT",
+      body: {
+        equipment: [...state.equipment].map(name => {
+          const custom = state.customEquipment.find(item => item.name === name);
+          return custom
+            ? { ...custom, nameZh: name, nameEn: custom.en, key: custom.equipmentKey || "", custom: true }
+            : { nameZh: name, nameEn: equipmentItems.find(item => item[0] === name)?.[1] || name, key: equipmentKeyMap[name] || "", custom: false };
+        })
+      }
+    }),
+    api("/api/plans", {
+      method: "POST",
+      body: {
+        name: "FitPlan Custom",
+        goal: state.goal,
+        status: state.planStarted ? "active" : "draft",
+        plan: { exerciseIds: [...state.selectedExercises], days: state.days, duration: state.duration }
+      }
+    })
+  ]);
+}
+
+async function saveCurrentPlanCloud() {
+  if (!state.user) return;
+  await api("/api/plans", {
+    method: "POST",
+    body: {
+      name: text("我的自定义训练", "My Custom Workout"),
+      goal: state.goal,
+      status: state.planStarted ? "active" : "draft",
+      plan: {
+        exerciseIds: [...state.selectedExercises],
+        days: state.days,
+        duration: state.duration,
+        equipment: [...state.equipment]
+      }
+    }
+  });
+}
+
+async function saveWorkoutCloud() {
+  if (!state.user) return;
+  const selected = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+  await api("/api/workouts", {
+    method: "POST",
+    body: {
+      startedAt: new Date(Date.now() - selected.length * 8 * 60000).toISOString(),
+      completedAt: new Date().toISOString(),
+      durationMinutes: selected.length * 8,
+      calories: selected.length * 75,
+      exercises: selected.map(item => ({ id: item.id, completed: state.completedExercises.has(item.id), sets: item.sets }))
+    }
+  });
+}
+
+async function api(url, options = {}) {
+  const response = await fetch(url, {
+    method: options.method || "GET",
+    credentials: "include",
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || text("请求失败", "Request failed"));
+  return data;
 }
 
 function bindRoutesAndToasts(root = document) {
@@ -952,3 +1426,4 @@ function editIngredient(index) {
 }
 
 render();
+loadCloudSession();
