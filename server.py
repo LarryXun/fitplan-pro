@@ -16,6 +16,10 @@ EQUIPMENT_SCHEMA = {
     "properties": {
         "nameZh": {"type": "STRING"},
         "nameEn": {"type": "STRING"},
+        "equipmentKey": {
+            "type": "STRING",
+            "enum": ["dumbbell", "barbell", "bench", "treadmill", "cable", "bands", "pull-up-bar", "kettlebell", "smith-machine", "leg-press", "bodyweight", "other"],
+        },
         "type": {
             "type": "STRING",
             "enum": ["selectorized", "plates", "fixed", "bodyweight"],
@@ -28,7 +32,7 @@ EQUIPMENT_SCHEMA = {
         "targetMuscles": {"type": "ARRAY", "items": {"type": "STRING"}},
     },
     "required": [
-        "nameZh", "nameEn", "type", "unit", "increment", "confidence",
+        "nameZh", "nameEn", "equipmentKey", "type", "unit", "increment", "confidence",
         "usageSteps", "commonMistakes", "targetMuscles",
     ],
 }
@@ -90,6 +94,7 @@ def analyze_image(data, kind):
     if kind == "equipment":
         prompt = (
             "Identify this gym equipment. Return practical data for a personal fitness app. "
+            "Choose the closest canonical equipmentKey from the response schema so compatible exercises can be filtered. "
             "Determine whether its load is a selectorized stack, weight plates, fixed weight, "
             "or bodyweight/assistance. Read visible labels when possible. Provide concise Chinese "
             "usage steps, common mistakes, and target muscles. Never invent a precise increment "

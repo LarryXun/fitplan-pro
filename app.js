@@ -9,32 +9,50 @@ const assets = {
 };
 
 const saved = JSON.parse(localStorage.getItem("fitplan-state") || "{}");
-const isLegacyState = saved.version !== 2;
 const debugParams = new URLSearchParams(location.search);
 const debugRoute = debugParams.get("route");
+const today = new Date();
+const localDateValue = date => {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+};
+const defaultRangeStart = localDateValue(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6));
+const defaultRangeEnd = localDateValue(today);
 const state = {
   route: debugRoute || "home",
-  previousRoute: "home",
+  routeStack: ["home"],
   language: debugParams.get("lang") || saved.language || "zh",
   units: debugParams.get("units") || saved.units || "metric",
-  period: debugParams.get("period") || "week",
   planPeriod: debugParams.get("planPeriod") || "week",
   setupStep: 1,
-  age: saved.age || 28,
-  weight: saved.weight || 70,
-  goalWeight: saved.goalWeight || 65,
-  bodyFat: saved.bodyFat || 15,
-  goal: isLegacyState ? "fat" : (saved.goal || "fat"),
+  profileMode: "body",
+  age: saved.age ?? null,
+  height: saved.height ?? null,
+  weight: saved.weight ?? null,
+  goalWeight: saved.goalWeight ?? null,
+  bodyFat: saved.bodyFat ?? null,
+  goal: saved.goal || "fat",
   days: saved.days || 4,
   duration: saved.duration || 45,
-  equipment: new Set(saved.equipment || ["哑铃", "杠铃", "卧推凳", "拉力器"]),
+  avatar: saved.avatar || assets.avatar,
+  equipment: new Set(saved.equipment || []),
   customEquipment: (saved.customEquipment || []).map(item => typeof item === "string"
     ? { name: item, en: "Custom", type: "selectorized", unit: "kg", increment: 5 }
     : item),
   activeWorkout: false,
   planStarted: saved.planStarted || false,
+  planId: saved.planId || null,
+  planDays: Array.isArray(saved.planDays) ? saved.planDays : [],
+  editingPlanDay: null,
+  dateRange: {
+    start: saved.dateRange?.start || defaultRangeStart,
+    end: saved.dateRange?.end || defaultRangeEnd,
+  },
+  workoutLogs: [],
+  foodLogs: [],
   completedExercises: new Set(),
   foodImage: null,
+  foodAnalysis: null,
   sheet: debugParams.get("sheet"),
   customEquipmentDraft: {
     image: null,
@@ -46,21 +64,17 @@ const state = {
     usageSteps: [],
     commonMistakes: [],
     targetMuscles: [],
+    equipmentKey: "",
   },
   equipmentGuide: null,
   user: null,
   authMode: "login",
   authBusy: false,
   exerciseFilter: { muscle: "all", equipment: "available", query: "" },
-  selectedExercises: new Set(saved.selectedExercises || ["bench-press", "seated-row", "rear-delt-raise", "front-squat", "romanian-deadlift"]),
+  selectedExercises: new Set(saved.selectedExercises || []),
   exerciseDetail: null,
   cloudReady: false,
-  ingredients: saved.ingredients || [
-    { name: "鸡胸肉", en: "Chicken Breast", amount: "150 g", kcal: 248 },
-    { name: "藜麦", en: "Quinoa", amount: "80 g", kcal: 120 },
-    { name: "西兰花", en: "Broccoli", amount: "100 g", kcal: 35 },
-    { name: "橄榄油", en: "Olive Oil", amount: "10 g", kcal: 90 },
-  ],
+  ingredients: saved.ingredients || [],
 };
 
 const app = document.querySelector("#app");
@@ -113,10 +127,15 @@ function persist() {
     goal: state.goal,
     days: state.days,
     duration: state.duration,
+    height: state.height,
+    avatar: state.avatar,
     equipment: [...state.equipment],
     customEquipment: state.customEquipment,
     ingredients: state.ingredients,
     planStarted: state.planStarted,
+    planId: state.planId,
+    planDays: state.planDays,
+    dateRange: state.dateRange,
     selectedExercises: [...state.selectedExercises],
   }));
 }
@@ -126,67 +145,21 @@ function text(zh, en) {
 }
 
 function dual(zh, en, tag = "span") {
-  const primary = text(zh, en);
-  const secondary = text(en, zh);
-  return `<${tag}>${primary}<small>${secondary}</small></${tag}>`;
+  return `<${tag}>${text(zh, en)}</${tag}>`;
 }
 
 function displayWeight(kg, digits = 1) {
+  if (kg === null || kg === undefined || Number.isNaN(Number(kg))) return "--";
   const value = state.units === "metric" ? kg : kg * 2.20462;
   return `${value.toFixed(digits)} ${state.units === "metric" ? "kg" : "lb"}`;
 }
 
 function displayHeight(cm) {
+  if (cm === null || cm === undefined || Number.isNaN(Number(cm))) return "--";
   if (state.units === "metric") return `${cm} cm`;
   const totalInches = Math.round(cm / 2.54);
   return `${Math.floor(totalInches / 12)}' ${totalInches % 12}"`;
 }
-
-const periodData = {
-  week: {
-    change: -0.4,
-    workouts: "4 / 6",
-    adherence: 92,
-    streak: 12,
-    labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    weights: [69.1, 69.0, 68.9, 68.8, 68.8, 68.6, 68.5],
-    bars: [72, 58, 88, 28, 92, 64, 18],
-    insightZh: "本周已完成 4 次训练。周五力量表现最好，建议周日保持低强度恢复。",
-    insightEn: "You completed 4 sessions this week. Friday was your strongest day; keep Sunday low intensity.",
-  },
-  month: {
-    change: -1.4,
-    workouts: "18 / 22",
-    adherence: 86,
-    streak: 12,
-    labels: ["W1", "W2", "W3", "W4", "W5"],
-    weights: [69.9, 69.5, 69.2, 68.8, 68.5],
-    bars: [74, 82, 68, 91, 55],
-    insightZh: "过去 30 天体重下降 1.4 kg，训练完成率 86%。减脂速度处于合理范围。",
-    insightEn: "Weight dropped 1.4 kg over 30 days with 86% adherence, a sustainable fat-loss pace.",
-  },
-  year: {
-    change: -6.3,
-    workouts: "164",
-    adherence: 79,
-    streak: 12,
-    labels: ["Jun", "Aug", "Oct", "Dec", "Feb", "Apr", "Jun"],
-    weights: [74.8, 74.0, 73.2, 72.1, 70.8, 69.6, 68.5],
-    bars: [55, 63, 70, 61, 78, 84, 76],
-    insightZh: "过去 12 个月累计下降 6.3 kg，同时保持了稳定力量训练，长期趋势良好。",
-    insightEn: "You lost 6.3 kg over 12 months while maintaining consistent strength training.",
-  },
-};
-
-const weeklyPlan = [
-  { dayZh: "周一", dayEn: "Mon", zh: "上肢推力", en: "Upper Push", duration: 45, focusZh: "胸部 · 肩部 · 三头", focusEn: "Chest · Shoulders · Triceps", image: "assets/plan-push.jpg" },
-  { dayZh: "周二", dayEn: "Tue", zh: "背部拉力", en: "Back Pull", duration: 45, focusZh: "背部 · 二头", focusEn: "Back · Biceps", image: "assets/plan-pull.jpg", route: "workout" },
-  { dayZh: "周三", dayEn: "Wed", zh: "坡度快走", en: "Incline Walk", duration: 35, focusZh: "室内有氧 · Zone 2", focusEn: "Indoor Cardio · Zone 2", image: "assets/plan-cardio.jpg" },
-  { dayZh: "周四", dayEn: "Thu", zh: "主动恢复", en: "Active Recovery", duration: 20, focusZh: "活动度 · 拉伸", focusEn: "Mobility · Stretch", image: "assets/plan-recovery.jpg" },
-  { dayZh: "周五", dayEn: "Fri", zh: "下肢力量", en: "Lower Strength", duration: 50, focusZh: "腿部 · 臀部", focusEn: "Legs · Glutes", image: "assets/plan-legs.jpg" },
-  { dayZh: "周六", dayEn: "Sat", zh: "核心 + 单车", en: "Core + Bike", duration: 40, focusZh: "核心 · 室内有氧", focusEn: "Core · Indoor Cardio", image: "assets/plan-core.jpg" },
-  { dayZh: "周日", dayEn: "Sun", zh: "恢复日", en: "Recovery", duration: 25, focusZh: "低强度拉伸", focusEn: "Low-intensity Stretch", image: "assets/plan-stretch.jpg" },
-];
 
 const monthlyPlan = [
   { week: 1, titleZh: "适应周", titleEn: "Foundation", sessions: 4, minutes: 165, load: 62 },
@@ -203,7 +176,7 @@ function header() {
   return `<header class="home-header">
     <div class="brand">
       <img src="${assets.logo}" alt="FitPlan AI">
-      <div><strong>FitPlan AI</strong><small>PERSONAL PERFORMANCE</small></div>
+      <div><strong>FitPlan AI</strong><small>${text("个人训练系统", "PERSONAL PERFORMANCE")}</small></div>
     </div>
     <div class="header-tools">
       <button class="utility-btn" data-toast="${text("暂无新通知", "No new notifications")}" aria-label="Notifications">${icon("bell")}</button>
@@ -223,7 +196,7 @@ function nav() {
   return `<nav class="nav">${items.map(([route, glyph, zh, en], index) => `
     <button data-route="${route}" class="${state.route === route ? "active" : ""} ${index === 2 ? "record" : ""}">
       <span class="nav-icon">${icon(glyph)}</span>
-      <span>${text(zh, en)}</span><small>${text(en, zh)}</small>
+      <span>${text(zh, en)}</span>
     </button>`).join("")}</nav>`;
 }
 
@@ -232,61 +205,61 @@ function sectionTitle(zh, en, action = "") {
 }
 
 function metric(iconName, zh, en, value, cls = "") {
-  return `<div class="metric ${cls}">${icon(iconName)}<div><span>${text(zh, en)}</span><small>${text(en, zh)}</small></div><strong>${value}</strong></div>`;
+  return `<div class="metric ${cls}">${icon(iconName)}<div><span>${text(zh, en)}</span></div><strong>${value}</strong></div>`;
 }
 
 function home() {
+  const planDays = ensurePlanDays();
+  const todayPlan = planDays[0];
+  const todayExercises = (todayPlan?.exerciseIds || []).map(id => exerciseLibrary.find(item => item.id === id)).filter(Boolean);
+  const completedWorkouts = state.workoutLogs.length;
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayFoods = state.foodLogs.filter(item => String(item.eaten_at || "").slice(0, 10) === todayKey);
+  const todayCalories = todayFoods.reduce((sum, item) => sum + Number(item.calories || 0), 0);
+  const userName = state.user?.name || text("用户", "User");
   return `<section class="screen home-screen">
     ${statusBar()}${header()}
     <section class="welcome-line">
-      <div class="identity"><img src="${assets.avatar}" alt="Larry"><div>${dual("你好，Larry", "Hi, Larry", "h1")}<p>${text("今天专注完成一次高质量训练", "Focus on one quality session today")}</p></div></div>
-      <button data-route="progress"><b>12</b><span>DAYS<small>STREAK</small></span>${icon("arrow")}</button>
+      <div class="identity"><img src="${state.avatar}" alt="${escapeHtml(userName)}"><div><h1>${text(`你好，${userName}`, `Hi, ${userName}`)}</h1><p>${text("今天专注完成一次高质量训练", "Focus on one quality session today")}</p></div></div>
+      <button data-route="progress"><b>${completedWorkouts}</b><span>${text("次训练", "WORKOUTS")}</span>${icon("arrow")}</button>
     </section>
-    <div class="performance-line"><span>TODAY · 09 JUN</span><span>WEEK 03 · CUT PHASE</span></div>
+    <div class="performance-line"><span>${new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en-US", { month:"short", day:"numeric", weekday:"short" }).format(new Date())}</span><span>${goalLabel()}</span></div>
 
     <section class="workout-section">
-      ${sectionTitle("今日训练", "Today's Workout", `<span class="technical">AI ADAPTED · ${state.equipment.size} EQUIPMENT</span>`)}
-      <article class="workout-hero">
+      ${sectionTitle("今日训练", "Today's Workout", `<span class="technical">${state.equipment.size} ${text("件器械", "EQUIPMENT")}</span>`)}
+      ${todayExercises.length ? `<article class="workout-hero">
         <div class="workout-photo">
-          <img src="${assets.workoutBanner}" alt="One-arm dumbbell row">
-          <span class="photo-index">SESSION 01</span>
+          <img src="${todayExercises[0].image}" alt="">
+          <span class="photo-index">${text("今日计划", "TODAY")}</span>
           <span class="photo-corner"></span>
         </div>
         <div class="hero-content">
-          <span class="eyebrow">${icon("target")} ${text("力量 · 背部", "STRENGTH · BACK")}</span>
-          ${dual("背部力量训练", "Back Strength", "h3")}
-          <div class="workout-meta"><span>${icon("clock")} 45 ${text("分钟", "MIN")}</span><span>${icon("activity")} ${text("中等强度", "MODERATE")}</span></div>
-          <button class="start-btn" data-route="workout">${icon("play")}<span>${text("开始训练", "Start Workout")}<small>${text("Start Workout", "开始训练")}</small></span>${icon("arrow")}</button>
+          <span class="eyebrow">${icon("target")} ${todayExercises.length} ${text("个动作", "EXERCISES")}</span>
+          <h3>${todayExercises.slice(0,2).map(item => text(item.zh,item.en)).join(" + ")}</h3>
+          <div class="workout-meta"><span>${icon("clock")} ${todayPlan.duration} ${text("分钟", "MIN")}</span><span>${icon("activity")} ${goalLabel()}</span></div>
+          <button class="start-btn" data-plan-day-workout="0">${icon("play")}<span>${text("开始训练", "Start Workout")}</span>${icon("arrow")}</button>
         </div>
-      </article>
+      </article>` : `<div class="home-empty"><span>${icon("calendar")}</span><div><b>${text("还没有今日训练", "No workout planned")}</b><p>${text("设置器械并选择动作后生成你的计划。", "Set equipment and choose exercises to build your plan.")}</p></div><button data-route="equipment">${text("开始设置", "Set Up")} ${icon("arrow")}</button></div>`}
     </section>
 
     <section class="performance-strip">
-      <div class="progress-arc"><div><b>78%</b><small>${text("完成", "DONE")}</small></div></div>
+      <div class="progress-arc"><div><b>${completedWorkouts}</b><small>${text("累计训练", "TOTAL")}</small></div></div>
       <div class="performance-metrics">
-        ${metric("check", "训练完成", "Workouts", "4 / 6")}
-        ${metric("flame", "活动热量", "Active kcal", "2,340")}
-        ${metric("activity", "连续训练", "Streak", text("12 天", "12 days"))}
+        ${metric("check", "训练完成", "Workouts", completedWorkouts)}
+        ${metric("flame", "累计消耗", "Calories", state.workoutLogs.reduce((sum, item) => sum + Number(item.calories || 0), 0))}
+        ${metric("activity", "计划动作", "Exercises", state.selectedExercises.size)}
       </div>
     </section>
 
     <section class="nutrition-section">
       ${sectionTitle("今日营养", "Today's Nutrition", `<button class="text-action" data-route="food">${icon("scan")} ${text("识别食物", "Scan Food")}</button>`)}
-      <article class="nutrition-panel">
-        <img src="${assets.mealThumb}" alt="Chicken quinoa bowl">
-        <div class="nutrition-content">
-          <div class="calorie-line"><div><span>${text("剩余", "Remaining")}</span><strong>680</strong><small>kcal</small></div><span class="goal">1,620 / 2,300</span></div>
-          ${macro("蛋白质", "Protein", 98, 140, "green")}
-          ${macro("碳水", "Carbs", 132, 180, "purple")}
-          ${macro("脂肪", "Fat", 42, 60, "amber")}
-        </div>
-      </article>
+      ${todayFoods.length ? `<article class="nutrition-panel"><img src="${todayFoods[0].image_url || assets.mealThumb}" alt=""><div class="nutrition-content"><div class="calorie-line"><div><span>${text("今日摄入", "Today")}</span><strong>${todayCalories}</strong><small>kcal</small></div><span class="goal">${todayFoods.length} ${text("餐", "meals")}</span></div></div></article>` : `<div class="home-empty compact"><span>${icon("scan")}</span><div><b>${text("今天还没有饮食记录", "No meals logged today")}</b><p>${text("拍照识别食物，也可以跳过不记录。", "Scan a meal when needed, or simply skip it.")}</p></div><button data-route="food">${text("拍照识别", "Scan")} ${icon("arrow")}</button></div>`}
     </section>
 
     <section class="quick-section">
       ${sectionTitle("快捷入口", "Quick Access")}
       <div class="quick-grid">
-        ${quick("setup", "target", "定制计划", "My Plan", "01")}
+        ${quick("profile-edit", "target", "身体数据", "Body Data", "01")}
         ${quick("food", "scan", "食物识别", "Food Scan", "02")}
         ${quick("equipment", "sliders", "器械设置", "Equipment", "03")}
         ${quick("progress", "chart", "训练进度", "Progress", "04")}
@@ -301,7 +274,7 @@ function macro(zh, en, value, max, color) {
 }
 
 function quick(route, glyph, zh, en, number) {
-  return `<button class="quick" data-route="${route}"><span class="quick-number">${number}</span>${icon(glyph)}<span>${text(zh, en)}</span><small>${text(en, zh)}</small>${icon("arrow", "quick-arrow")}</button>`;
+  return `<button class="quick" data-route="${route}"><span class="quick-number">${number}</span>${icon(glyph)}<span>${text(zh, en)}</span>${icon("arrow", "quick-arrow")}</button>`;
 }
 
 const workouts = [
@@ -315,7 +288,7 @@ const workouts = [
 ];
 
 function innerTop(zh, en, back = "home") {
-  return `${statusBar()}<header class="inner-top"><button class="utility-btn" data-route="${back}">${icon("back")}</button>${dual(zh, en, "h1")}<button class="utility-btn" data-toast="${text("更多功能", "More options")}">${icon("more")}</button></header>`;
+  return `${statusBar()}<header class="inner-top"><button class="utility-btn" data-back-route="${back}">${icon("back")}</button>${dual(zh, en, "h1")}<button class="utility-btn" data-toast="${text("更多功能", "More options")}">${icon("more")}</button></header>`;
 }
 
 function plan() {
@@ -327,74 +300,120 @@ function plan() {
 }
 
 function planBody() {
+  const planDays = ensurePlanDays();
+  if (!planDays.length) {
+    return `<section class="empty-state plan-empty">${icon("calendar")}<b>${text("还没有训练计划", "No training plan yet")}</b><p>${text("先选择你拥有的器械和想练的动作，再生成专属计划。", "Choose your equipment and exercises first, then generate a personalized plan.")}</p><button class="primary-btn" data-route="equipment">${text("从器械设置开始", "Start with Equipment")} ${icon("arrow")}</button></section>`;
+  }
   if (state.planPeriod === "month") {
+    const sessionCount = planDays.length * 4;
+    const totalMinutes = planDays.reduce((sum, item) => sum + item.duration, 0) * 4;
     return `<section class="plan-overview">
-      <div><small>${text("本月目标", "MONTHLY GOAL")}</small><strong>${text("减脂 1.2 kg", "Lose 1.2 kg")}</strong></div>
-      <div><small>${text("训练安排", "SESSIONS")}</small><strong>17 <em>${text("次", "sessions")}</em></strong></div>
-      <div class="mini-ring"><b>72%</b></div>
+      <div><small>${text("本月目标", "MONTHLY GOAL")}</small><strong>${goalLabel()}</strong></div>
+      <div><small>${text("训练安排", "SESSIONS")}</small><strong>${sessionCount} <em>${text("次", "sessions")}</em></strong></div>
+      <div><small>${text("预计时长", "DURATION")}</small><strong>${totalMinutes} <em>min</em></strong></div>
     </section>
     <div class="month-plan">${monthlyPlan.map(item => `<article>
-      <div class="month-week"><small>WEEK</small><b>0${item.week}</b></div>
-      <div class="month-copy">${dual(item.titleZh,item.titleEn,"h3")}<p>${item.sessions} ${text("次训练","sessions")} · ${item.minutes} min</p><div class="month-load"><i style="width:${item.load}%"></i></div></div>
+      <div class="month-week"><small>${text("第", "WEEK")}</small><b>0${item.week}</b></div>
+      <div class="month-copy">${dual(item.titleZh,item.titleEn,"h3")}<p>${planDays.length} ${text("次训练","sessions")} · ${planDays.reduce((sum, day) => sum + day.duration, 0)} min</p><div class="month-load"><i style="width:${item.load}%"></i></div></div>
       <strong>${item.load}%<small>${text("负荷","LOAD")}</small></strong>
     </article>`).join("")}</div>
     <button class="primary-btn" data-start-plan>${icon(state.planStarted?"check":"calendar")} ${text(state.planStarted?"本月计划进行中":"启用本月计划",state.planStarted?"Month In Progress":"Activate Month")}</button>`;
   }
+  const totalMinutes = planDays.reduce((sum, item) => sum + item.duration, 0);
   return `<section class="plan-overview">
-    <div><small>${text("本周目标", "WEEKLY GOAL")}</small><strong>${text("减脂 & 保持力量", "Cut & Maintain")}</strong></div>
-    <div><small>${text("预计消耗", "EST. BURN")}</small><strong>3,480 <em>kcal</em></strong></div>
-    <div class="mini-ring"><b>67%</b></div>
+    <div><small>${text("本周目标", "WEEKLY GOAL")}</small><strong>${goalLabel()}</strong></div>
+    <div><small>${text("训练安排", "SESSIONS")}</small><strong>${planDays.length} <em>${text("次", "sessions")}</em></strong></div>
+    <div><small>${text("预计时长", "DURATION")}</small><strong>${totalMinutes} <em>min</em></strong></div>
   </section>
-  <div class="schedule">${weeklyPlan.map(item => `<button class="schedule-row" ${item.route ? `data-route="${item.route}"` : `data-toast="${text(item.zh,item.en)}"`}>
-    <span class="schedule-day"><b>${text(item.dayZh,item.dayEn)}</b><small>${text(item.dayEn,item.dayZh)}</small></span>
-    <img src="${item.image}" alt="${item.en}">
-    <span class="schedule-copy"><b>${text(item.zh,item.en)}</b><small>${text(item.en,item.zh)}</small><em>${item.duration} min · ${text(item.focusZh,item.focusEn)}</em></span>${icon("arrow")}
-  </button>`).join("")}</div>
+  <div class="schedule">${planDays.map((item, index) => {
+    const exercises = item.exerciseIds.map(id => exerciseLibrary.find(exercise => exercise.id === id)).filter(Boolean);
+    const first = exercises[0];
+    const title = exercises.length ? exercises.map(exercise => text(exercise.zh, exercise.en)).slice(0, 2).join(" + ") : text("恢复训练", "Recovery");
+    const focus = [...new Set(exercises.map(exercise => text(muscleLabels[exercise.muscle]?.[0] || exercise.muscle, muscleLabels[exercise.muscle]?.[1] || exercise.muscle)))].join(" · ");
+    return `<article class="schedule-row">
+      <span class="schedule-day"><b>${text(item.dayZh,item.dayEn)}</b></span>
+      <img src="${first?.image || assets.workoutThumb}" alt="">
+      <button class="schedule-copy" data-plan-day-workout="${index}"><b>${title}</b><em>${item.duration} min · ${focus || text("恢复", "Recovery")}</em></button>
+      <button class="schedule-edit" data-edit-plan-day="${index}" aria-label="${text("编辑当天计划","Edit day")}">${icon("edit")}</button>
+    </article>`;
+  }).join("")}</div>
   <button class="primary-btn" data-start-plan>${icon(state.planStarted?"check":"play")} ${text(state.planStarted?"本周计划进行中":"开始本周计划",state.planStarted?"Week In Progress":"Start This Week")}</button>`;
+}
+
+function goalLabel() {
+  const labels = { fat: ["减脂", "Fat Loss"], muscle: ["增肌", "Muscle Gain"], health: ["保持健康", "Maintain Health"], recomp: ["塑形", "Recomposition"], fitness: ["提升体能", "Improve Fitness"] };
+  return text(...(labels[state.goal] || labels.fat));
+}
+
+function ensurePlanDays(force = false) {
+  const validIds = [...state.selectedExercises].filter(id => exerciseLibrary.some(item => item.id === id));
+  if (!validIds.length) {
+    if (force) state.planDays = [];
+    return state.planDays;
+  }
+  if (!force && state.planDays.length && state.planDays.some(day => day.exerciseIds?.length)) return state.planDays;
+  const dayLabels = [["周一","Mon"],["周二","Tue"],["周三","Wed"],["周四","Thu"],["周五","Fri"],["周六","Sat"],["周日","Sun"]];
+  const count = Math.max(1, Math.min(7, state.days || 4));
+  const days = Array.from({ length: count }, (_, index) => ({
+    dayZh: dayLabels[index][0],
+    dayEn: dayLabels[index][1],
+    duration: state.duration || 45,
+    exerciseIds: [],
+  }));
+  validIds.forEach((id, index) => days[index % days.length].exerciseIds.push(id));
+  state.planDays = days;
+  persist();
+  return state.planDays;
 }
 
 function logScreen() {
   const actions = [
     ["food", "scan", "食物识别", "Food Scan", "AI"],
-    ["", "dumbbell", "训练记录", "Workout Log", "+45"],
-    ["", "weight", "体重记录", "Weight Log", "68.5"],
-    ["", "activity", "饮水记录", "Water Log", "1.75L"],
+    ["progress", "dumbbell", "训练记录", "Workout Log", state.workoutLogs.length],
+    ["profile-edit", "weight", "身体数据", "Body Data", state.weight ? displayWeight(state.weight) : "--"],
+    ["", "activity", "饮水记录", "Water Log", "--"],
   ];
+  const activities = [
+    ...state.workoutLogs.map(item => ({ time: item.started_at, title: text("训练", "Workout"), value: `${item.duration_minutes || 0} min`, icon: "dumbbell" })),
+    ...state.foodLogs.map(item => ({ time: item.eaten_at, title: text(item.meal_name_zh || "饮食", item.meal_name_en || "Meal"), value: `${item.calories || 0} kcal`, icon: "scan" })),
+  ].sort((a,b) => new Date(b.time) - new Date(a.time)).slice(0, 20);
   return `<section class="screen">${statusBar()}${sectionTitle("记录", "Daily Log")}
     <div class="log-grid">${actions.map(([route, glyph, zh, en, value]) => `<button class="log-tile" ${route ? `data-route="${route}"` : `data-toast="${text(`${zh}已更新`, `${en} updated`)}"`}><span>${value}</span>${icon(glyph)}${dual(zh, en, "b")}${icon("arrow")}</button>`).join("")}</div>
-    <section class="timeline">${sectionTitle("今日记录", "Today's Activity")}
-      ${[["08:20","早餐","Breakfast","420 kcal"],["17:35","背部力量训练","Back Strength","45 min"],["19:10","晚餐","Dinner","620 kcal"],["21:00","饮水","Water","250 ml"]].map(x => `<div class="timeline-row"><time>${x[0]}</time><span></span><div>${dual(x[1], x[2], "b")}<em>${x[3]}</em></div>${icon("check")}</div>`).join("")}
+    <section class="timeline">${sectionTitle("历史记录", "History")}
+      ${activities.length ? activities.map(item => `<div class="timeline-row"><time>${new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en-US", { month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit" }).format(new Date(item.time))}</time><span></span><div><b>${item.title}</b><em>${item.value}</em></div>${icon(item.icon)}</div>`).join("") : `<div class="empty-inline">${text("还没有训练或饮食记录", "No workout or meal records yet")}</div>`}
     </section>${nav()}</section>`;
 }
 
 function progress() {
   return `<section class="screen">${innerTop("训练进度", "Progress")}
-    <div class="segmented">${[["week","周","Week"],["month","月","Month"],["year","年","Year"]].map(([key,zh,en]) => `<button data-period="${key}" class="${state.period === key ? "active" : ""}">${text(zh,en)}</button>`).join("")}</div>
+    <section class="range-picker">
+      <div class="range-shortcuts">${[["week","近一周","7 Days"],["month","近一月","30 Days"],["year","近一年","1 Year"]].map(([key,zh,en]) => `<button data-range-shortcut="${key}">${text(zh,en)}</button>`).join("")}</div>
+      <div class="range-inputs"><label><span>${text("开始日期","From")}</span><input type="date" data-range-start value="${state.dateRange.start}"></label><i>—</i><label><span>${text("结束日期","To")}</span><input type="date" data-range-end value="${state.dateRange.end}"></label></div>
+    </section>
     <div class="progress-body">${progressBody()}</div>${nav()}
   </section>`;
 }
 
 function progressBody() {
-  const data = periodData[state.period];
-  const changeValue = state.units === "metric" ? data.change : data.change * 2.20462;
-  const changeUnit = state.units === "metric" ? "kg" : "lb";
-  const min = Math.min(...data.weights);
-  const max = Math.max(...data.weights);
-  const points = data.weights.map((value,index) => {
-    const x = data.weights.length === 1 ? 0 : index * 360 / (data.weights.length - 1);
-    const y = 25 + ((max - value) / Math.max(.1,max-min)) * 95;
-    return `${x},${y}`;
-  }).join(" ");
+  const start = new Date(`${state.dateRange.start}T00:00:00`);
+  const end = new Date(`${state.dateRange.end}T23:59:59`);
+  const workouts = state.workoutLogs.filter(item => {
+    const date = new Date(item.started_at);
+    return date >= start && date <= end;
+  });
+  const sessions = workouts.length;
+  const minutes = workouts.reduce((sum, item) => sum + Number(item.duration_minutes || 0), 0);
+  const calories = workouts.reduce((sum, item) => sum + Number(item.calories || 0), 0);
+  const completedExercises = workouts.reduce((sum, item) => sum + (Array.isArray(item.exercises) ? item.exercises.filter(exercise => exercise.completed !== false).length : 0), 0);
+  const daySpan = Math.max(1, Math.ceil((end - start) / 86400000) + 1);
+  const adherence = state.planDays.length ? Math.min(100, Math.round(sessions / Math.max(1, state.planDays.length * daySpan / 7) * 100)) : 0;
   return `<section class="progress-kpis">
-    <div><small>${text("当前体重","CURRENT WEIGHT")}</small><strong>${displayWeight(data.weights.at(-1))}</strong></div>
-    <div><small>${text("周期变化","PERIOD CHANGE")}</small><strong class="green">${changeValue > 0 ? "+" : ""}${changeValue.toFixed(1)} <em>${changeUnit}</em></strong></div>
-    <div><small>${text("连续训练","STREAK")}</small><strong>${data.streak} <em>${text("天","days")}</em></strong></div>
+    <div><small>${text("完成训练","WORKOUTS")}</small><strong>${sessions}</strong></div>
+    <div><small>${text("训练时长","DURATION")}</small><strong>${minutes} <em>min</em></strong></div>
+    <div><small>${text("消耗热量","CALORIES")}</small><strong>${calories} <em>kcal</em></strong></div>
   </section>
-  <article class="data-panel">${sectionTitle("体重趋势", "Weight Trend", `<b class="green">${changeValue.toFixed(1)} ${changeUnit}</b>`)}
-    <div class="chart"><svg viewBox="0 0 360 150" preserveAspectRatio="none"><defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#82f05f" stop-opacity=".32"/><stop offset="1" stop-color="#82f05f" stop-opacity="0"/></linearGradient></defs><polygon points="${points} 360,150 0,150" fill="url(#chartFill)"/><polyline points="${points}" fill="none" stroke="#82f05f" stroke-width="3"/></svg><div class="chart-labels">${data.labels.map(x=>`<span>${x}</span>`).join("")}</div></div>
-  </article>
-  <div class="data-grid"><article class="data-panel"><small>${text("完成训练","WORKOUTS")}</small><strong class="data-value">${data.workouts}</strong><div class="bars">${data.bars.map(h => `<i style="height:${h}%"></i>`).join("")}</div></article><article class="data-panel"><small>${text("训练依从性","ADHERENCE")}</small><strong class="score">${data.adherence}</strong><p>/100</p><ul><li>${text("室内训练为主","Indoor focused")}</li><li>${text("减脂进度稳定","Stable fat loss")}</li></ul></article></div>
-  <article class="insight">${icon("activity")}<div>${dual("AI 洞察", "AI Insight", "b")}<p>${text(data.insightZh,data.insightEn)}</p></div></article>`;
+  ${sessions ? `<div class="data-grid"><article class="data-panel"><small>${text("完成动作","EXERCISES")}</small><strong class="data-value">${completedExercises}</strong><p>${text("所选日期范围内", "in selected range")}</p></article><article class="data-panel"><small>${text("计划完成率","ADHERENCE")}</small><strong class="score">${adherence}</strong><p>/100</p></article></div>
+  <section class="range-workouts">${workouts.map(item => `<article><span>${icon("check")}</span><div><b>${new Intl.DateTimeFormat(state.language === "zh" ? "zh-CN" : "en-US", { month:"short", day:"numeric" }).format(new Date(item.started_at))}</b><small>${item.duration_minutes || 0} min · ${item.calories || 0} kcal</small></div></article>`).join("")}</section>` : `<div class="empty-state progress-empty">${icon("chart")}<b>${text("这个日期范围还没有训练数据", "No workouts in this date range")}</b><p>${text("完成训练后，记录会自动出现在这里。", "Completed workouts will appear here automatically.")}</p></div>`}`;
 }
 
 function profile() {
@@ -440,7 +459,8 @@ function bodyData() {
 }
 
 function stepperRow(zh, en, key, value, unit) {
-  const shown = ["weight","goalWeight"].includes(key) && state.units === "imperial" ? (value * 2.20462).toFixed(1) : value;
+  const normalized = value ?? 0;
+  const shown = ["weight","goalWeight"].includes(key) && state.units === "imperial" ? (normalized * 2.20462).toFixed(1) : normalized;
   return `<div class="form-row">${icon(key === "weight" || key === "goalWeight" ? "weight" : "activity")}<span>${dual(zh,en,"b")}</span><div class="stepper"><button data-stepper="${key}" data-delta="-1">−</button><strong>${shown}</strong><button data-stepper="${key}" data-delta="1">+</button><em>${unit}</em></div></div>`;
 }
 
@@ -605,7 +625,7 @@ const exercises = [
 ];
 
 function workout() {
-  return `<section class="screen workout-screen">${innerTop("训练详情","Workout Detail",state.previousRoute)}
+  return `<section class="screen workout-screen">${innerTop("训练详情","Workout Detail")}
     <article class="detail-hero"><img src="${assets.workoutBanner}" alt="Back strength workout"><div class="photo-shade"></div><div>${dual("背部力量训练","Back Strength","h1")}<span>HYPERTROPHY · INTERMEDIATE</span></div></article>
     <section class="detail-metrics">${metric("clock","训练时长","Duration","45 min")}${metric("flame","预计消耗","Est. Calories","620")}${metric("activity","训练难度","Difficulty",text("中级","Medium"))}</section>
     <section class="exercise-list">${sectionTitle("训练动作","Exercises",`<span>${state.completedExercises.size}/${exercises.length}</span>`)}
@@ -615,25 +635,22 @@ function workout() {
 }
 
 function food() {
-  const image = state.foodImage || assets.mealHero;
+  const image = state.foodImage;
   const total = state.ingredients.reduce((sum, item) => sum + Number(item.kcal), 0);
-  return `<section class="screen food-screen">${innerTop("食物识别","Food Recognition",state.previousRoute)}
-    <label class="food-camera"><img src="${image}" alt="Recognized meal"><span class="scan-corners"></span><span class="camera-command">${icon("camera")} ${text("拍照或选择图片","Take or choose photo")}</span><input id="food-input" type="file" accept="image/*" capture="environment"></label>
-    <div class="recognition-head">${sectionTitle("AI 识别结果","AI Recognition Result")}<span class="confidence">92% · HIGH</span></div>
-    <section class="food-summary"><div>${dual("鸡胸肉藜麦沙拉","Chicken Quinoa Salad","h2")}<small>${text("估算总热量","ESTIMATED CALORIES")}</small></div><strong>${total}<em> kcal</em></strong><div class="food-macros">${macro("蛋白质","Protein",42,60,"green")}${macro("碳水","Carbs",48,70,"purple")}${macro("脂肪","Fat",16,30,"amber")}</div></section>
+  return `<section class="screen food-screen">${innerTop("食物识别","Food Recognition")}
+    <label class="food-camera ${image ? "has-image" : "empty"}">${image ? `<img src="${image}" alt="">` : `<span class="food-camera-empty">${icon("camera")}<b>${text("拍摄今天吃的食物", "Photograph Your Meal")}</b><small>${text("识别后可以手动修改食材、份量和热量", "Edit ingredients, portions and calories after recognition")}</small></span>`}<span class="scan-corners"></span><span class="camera-command">${icon("camera")} ${text("拍照或选择图片","Take or choose photo")}</span><input id="food-input" type="file" accept="image/*" capture="environment"></label>
+    ${state.ingredients.length ? `<div class="recognition-head">${sectionTitle("AI 识别结果","AI Recognition Result")}<span class="confidence">${Math.round((state.foodAnalysis?.confidence || 0) * 100)}%</span></div>
+    <section class="food-summary"><div><h2>${text(state.foodAnalysis?.dishNameZh || "已识别餐食", state.foodAnalysis?.dishNameEn || "Recognized Meal")}</h2><small>${text("估算总热量","ESTIMATED CALORIES")}</small></div><strong>${total}<em> kcal</em></strong></section>
     <section class="ingredient-list">${sectionTitle("食材分析","Ingredients",`<button class="text-action" data-edit-all>${icon("edit")} ${text("编辑","Edit")}</button>`)}
       ${state.ingredients.map((x,i) => `<button data-ingredient="${i}"><span class="ingredient-index">0${i+1}</span><span>${dual(x.name,x.en,"b")}</span><em>${x.amount}</em><strong>${x.kcal} kcal</strong>${icon("edit")}</button>`).join("")}
     </section>
-    <div class="sticky-actions"><button class="secondary-btn" data-toast="${text("正在重新识别","Recognition restarted")}">${icon("refresh")} ${text("重新识别","Retry")}</button><button class="primary-btn" data-save-food>${icon("check")} ${text("保存记录","Save Log")}</button></div>
+    <div class="sticky-actions"><label class="secondary-btn retry-photo">${icon("refresh")} ${text("重新拍摄","Retry")}<input id="food-retry-input" type="file" accept="image/*" capture="environment" hidden></label><button class="primary-btn" data-save-food>${icon("check")} ${text("保存记录","Save Log")}</button></div>` : `<div class="food-empty-note">${icon("activity")}<p>${text("饮食记录可以跳过，不会影响训练计划使用。", "Meal logging is optional and does not block your training plan.")}</p></div>`}
   </section>`;
 }
 
 const exerciseLibrary = window.FITPLAN_EXERCISES || [];
 const validExerciseIds = new Set(exerciseLibrary.map(item => item.id));
 state.selectedExercises = new Set([...state.selectedExercises].filter(id => validExerciseIds.has(id)));
-if (!state.selectedExercises.size) {
-  state.selectedExercises = new Set(["bench-press", "seated-row", "rear-delt-raise", "front-squat", "romanian-deadlift"]);
-}
 if (debugParams.get("exercise")) {
   state.exerciseDetail = exerciseLibrary.find(item => item.id === debugParams.get("exercise")) || null;
   if (state.exerciseDetail) state.sheet = "exercise-detail";
@@ -673,6 +690,24 @@ function availableEquipmentKeys() {
   return keys;
 }
 
+function inferEquipmentKey(...values) {
+  const source = values.filter(Boolean).join(" ").toLowerCase();
+  const rules = [
+    ["smith-machine", ["史密斯", "smith"]],
+    ["pull-up-bar", ["引体", "pull-up", "pull up"]],
+    ["leg-press", ["腿举", "leg press"]],
+    ["treadmill", ["跑步", "treadmill"]],
+    ["kettlebell", ["壶铃", "kettlebell"]],
+    ["dumbbell", ["哑铃", "dumbbell"]],
+    ["barbell", ["杠铃", "barbell"]],
+    ["bench", ["卧推凳", "训练凳", "bench"]],
+    ["cable", ["拉力器", "绳索", "龙门架", "cable", "pulldown"]],
+    ["bands", ["弹力带", "resistance band"]],
+    ["bodyweight", ["自重", "bodyweight"]],
+  ];
+  return rules.find(([, words]) => words.some(word => source.includes(word)))?.[0] || "other";
+}
+
 function filteredExercises() {
   const query = state.exerciseFilter.query.trim().toLowerCase();
   const equipment = availableEquipmentKeys();
@@ -686,22 +721,53 @@ function filteredExercises() {
 
 function exerciseLibraryScreen() {
   const items = filteredExercises();
-  return `<section class="screen exercise-library-screen">${innerTop("动作库", "Exercise Library", state.previousRoute)}
+  const selected = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+  const muscleCount = new Set(selected.map(item => item.muscle)).size;
+  const estimatedMinutes = selected.length ? selected.length * 8 : 0;
+  return `<section class="screen exercise-library-screen">${innerTop("动作库", "Exercise Library")}
+    <header class="library-heading">
+      <span class="library-kicker">${text("自主训练编排", "CUSTOM WORKOUT")}</span>
+      <h2>${text("选择今天要练的动作", "Choose Today's Exercises")}</h2>
+      <p>${text("根据已有器械筛选动作，查看讲解后加入训练计划。", "Filter by your equipment, review technique, then add exercises to your plan.")}</p>
+    </header>
+    <div class="builder-steps" aria-label="${text("训练计划创建流程", "Workout builder progress")}">
+      <button class="complete" data-route="equipment"><span>${icon("check")}</span><b>${text("器械", "Equipment")}</b><small>${state.equipment.size} ${text("件", "items")}</small></button>
+      <div class="step-line active"></div>
+      <button class="active"><span>2</span><b>${text("动作", "Exercises")}</b><small>${text("正在选择", "Selecting")}</small></button>
+      <div class="step-line"></div>
+      <button><span>3</span><b>${text("计划", "Plan")}</b><small>${text("待生成", "Next")}</small></button>
+    </div>
     <section class="library-summary">
-      <div>${icon("library")}<span><b>${text("自主编排训练", "Build Your Workout")}</b><small>${text("按肌群和已有器械筛选", "Filter by muscle and available equipment")}</small></span></div>
-      <strong>${state.selectedExercises.size}<small>${text("已选择", "SELECTED")}</small></strong>
+      <div class="summary-main"><span>${icon("library")}</span><div><small>${text("当前训练", "CURRENT WORKOUT")}</small><b><strong data-selected-count>${selected.length}</strong> ${text("个动作", "exercises")}</b></div></div>
+      <dl>
+        <div><dt>${text("预计", "TIME")}</dt><dd data-estimated-time>${estimatedMinutes || "--"}${estimatedMinutes ? text(" 分钟", " min") : ""}</dd></div>
+        <div><dt>${text("肌群", "MUSCLES")}</dt><dd data-muscle-count>${muscleCount || "--"}</dd></div>
+      </dl>
     </section>
-    <label class="search-box library-search">${icon("search")}<input id="exercise-search" value="${escapeHtml(state.exerciseFilter.query)}" placeholder="${text("搜索动作名称", "Search exercises")}"></label>
-    <div class="muscle-tabs">${Object.entries(muscleLabels).map(([key, labels]) => `<button data-muscle="${key}" class="${state.exerciseFilter.muscle === key ? "active" : ""}">${text(labels[0], labels[1])}</button>`).join("")}</div>
-    <button class="availability-toggle ${state.exerciseFilter.equipment === "available" ? "active" : ""}" data-availability>
-      ${icon("filter")}<span>${dual("仅显示现有器械可做", "Available Equipment Only", "b")}</span><i>${state.exerciseFilter.equipment === "available" ? icon("check") : ""}</i>
-    </button>
+    <div class="library-controls">
+      <label class="search-box library-search">${icon("search")}<input id="exercise-search" value="${escapeHtml(state.exerciseFilter.query)}" placeholder="${text("搜索动作名称", "Search exercises")}"></label>
+      <div class="muscle-tabs">${Object.entries(muscleLabels).map(([key, labels]) => `<button data-muscle="${key}" class="${state.exerciseFilter.muscle === key ? "active" : ""}">${text(labels[0], labels[1])}</button>`).join("")}</div>
+      <div class="availability-row">
+        <button class="availability-toggle ${state.exerciseFilter.equipment === "available" ? "active" : ""}" data-availability>
+          <i>${state.exerciseFilter.equipment === "available" ? icon("check") : ""}</i><span>${dual("仅看现有器械可做", "Available Equipment Only", "b")}</span>
+        </button>
+        <button class="equipment-edit" data-route="equipment">${text("管理器械", "Edit")} ${icon("arrow")}</button>
+      </div>
+    </div>
+    <div class="selected-exercise-strip" data-selected-strip>${selectedExerciseStrip(selected)}</div>
+    <div class="catalog-heading"><b>${text("动作列表", "Exercises")}</b><span data-result-count>${items.length} ${text("个结果", "results")}</span></div>
     <div class="exercise-catalog">${items.length ? items.map(exerciseCard).join("") : `<div class="empty-state">${icon("filter")}<b>${text("没有匹配动作", "No matching exercises")}</b><p>${text("切换肌群或关闭器械限制。", "Change the muscle group or equipment filter.")}</p></div>`}</div>
     <div class="library-actions">
-      <button class="secondary-btn" data-generate-from-equipment>${icon("refresh")} ${text("按器械推荐", "Auto Select")}</button>
-      <button class="primary-btn" data-use-selection>${icon("check")} ${text(`使用 ${state.selectedExercises.size} 个动作`, `Use ${state.selectedExercises.size} Exercises`)}</button>
+      <button class="secondary-btn" data-generate-from-equipment>${icon("refresh")}<span>${dual("按器械智能选择", "Smart Select", "b")}</span></button>
+      <button class="primary-btn" data-use-selection><span>${dual(`加入训练计划 · ${selected.length}`, `Add to Plan · ${selected.length}`, "b")}</span>${icon("arrow")}</button>
     </div>
   </section>`;
+}
+
+function selectedExerciseStrip(items) {
+  if (!items.length) return `<span class="selection-empty">${text("还没有选择动作", "No exercises selected yet")}</span>`;
+  return items.slice(0, 5).map(item => `<button data-exercise-detail="${item.id}"><img src="${item.image}" alt=""><span>${text(item.zh, item.en)}</span></button>`).join("") +
+    (items.length > 5 ? `<span class="selection-more">+${items.length - 5}</span>` : "");
 }
 
 function exerciseCard(item) {
@@ -710,13 +776,13 @@ function exerciseCard(item) {
   return `<article class="catalog-card ${selected ? "selected" : ""}">
     <button class="catalog-preview" data-exercise-detail="${item.id}">
       <img src="${item.image}" alt="${item.en}">
-      <span class="media-badge">${icon("video")} ${text("视频 + 循环", "Video + Loop")}</span>
-      <span class="difficulty">${item.difficulty.toUpperCase()}</span>
+      <span class="media-badge">${icon("play")} ${text("讲解", "Guide")}</span>
     </button>
     <div class="catalog-copy">
       ${dual(item.zh, item.en, "h3")}
-      <p>${text(muscleLabels[item.muscle]?.[0] || item.muscle, muscleLabels[item.muscle]?.[1] || item.muscle)} · ${equipmentLabel(item.equipment)} · ${item.sets}</p>
-      <button data-exercise-detail="${item.id}">${text("查看动作要点", "View Technique")} ${icon("arrow")}</button>
+      <div class="exercise-tags"><span>${text(muscleLabels[item.muscle]?.[0] || item.muscle, muscleLabels[item.muscle]?.[1] || item.muscle)}</span><span>${equipmentLabel(item.equipment)}</span><span>${item.difficulty.toUpperCase()}</span></div>
+      <p>${item.sets} · ${text("含视频与循环动作讲解", "Video and motion guide included")}</p>
+      <button data-exercise-detail="${item.id}">${text("查看动作讲解", "View Technique")} ${icon("arrow")}</button>
     </div>
     <button class="exercise-add ${selected ? "active" : ""}" data-toggle-exercise="${item.id}" aria-label="${text("选择动作", "Select exercise")}">
       ${selected ? icon("check") : icon("plus")}
@@ -768,8 +834,8 @@ function exerciseDetailSheet() {
 
 function workoutV2() {
   const chosen = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
-  return `<section class="screen workout-screen">${innerTop("训练详情","Workout Detail",state.previousRoute)}
-    <article class="detail-hero"><img src="${assets.workoutBanner}" alt="Back strength workout"><div class="photo-shade"></div><div>${dual("自定义力量训练","Custom Strength","h1")}<span>${chosen.length} EXERCISES · EQUIPMENT ADAPTED</span></div></article>
+  return `<section class="screen workout-screen">${innerTop("训练详情","Workout Detail")}
+    <article class="detail-hero"><img src="${assets.workoutBanner}" alt=""><div class="photo-shade"></div><div>${dual("自定义力量训练","Custom Strength","h1")}<span>${text(`${chosen.length} 个动作 · 已适配器械`, `${chosen.length} EXERCISES · EQUIPMENT ADAPTED`)}</span></div></article>
     <div class="workout-toolbar"><button data-route="exercise-library">${icon("library")}<span>${dual("选择动作","Choose Exercises","b")}</span>${icon("arrow")}</button><button data-generate-from-equipment>${icon("refresh")}<span>${dual("按器械重排","Adapt to Equipment","b")}</span>${icon("arrow")}</button></div>
     <section class="detail-metrics">${metric("clock","训练时长","Duration",`${Math.max(25, chosen.length * 8)} min`)}${metric("flame","预计消耗","Est. Calories",String(chosen.length * 75))}${metric("activity","动作数量","Exercises",String(chosen.length))}</section>
     <section class="exercise-list">${sectionTitle("训练动作","Exercises",`<span>${state.completedExercises.size}/${chosen.length}</span>`)}
@@ -783,17 +849,8 @@ function workoutV2() {
 }
 
 function profileV2() {
-  if (!state.user) {
-    return `<section class="screen">${statusBar()}${sectionTitle("我的", "Profile")}
-      <section class="auth-hero">${icon("cloud")}<span>${dual("登录后启用云端记录", "Sign In for Cloud Sync", "h1")}<p>${text("身体数据、器械、训练计划、训练记录和饮食记录会保存到你的账户。", "Your profile, equipment, plans, workouts and meals will be stored securely.")}</p></span></section>
-      <button class="primary-btn" data-open-auth="login">${text("登录", "Sign In")}</button>
-      <button class="secondary-btn auth-secondary" data-open-auth="register">${text("创建免费账户", "Create Free Account")}</button>
-      <section class="local-data-note">${icon("activity")}<p>${text("当前本机数据不会丢失；首次登录后会自动同步。", "Current local data stays available and syncs after your first sign-in.")}</p></section>
-      ${nav()}
-    </section>`;
-  }
   return `<section class="screen">${statusBar()}${sectionTitle("我的", "Profile", `<span class="cloud-state">${icon("cloud")} ${text("已同步","SYNCED")}</span>`)}
-    <section class="profile-panel"><div class="profile-main"><img src="${assets.avatar}" alt="${escapeHtml(state.user.name)}"><div>${dual(`你好，${state.user.name}`, `Hi, ${state.user.name}`, "h1")}<p>${escapeHtml(state.user.email)}</p></div><button class="utility-btn" data-route="setup">${icon("edit")}</button></div><div class="profile-stats"><div><small>${text("当前目标","GOAL")}</small><b class="green">${text("减脂","FAT LOSS")}</b></div><div><small>${text("训练天数","DAYS")}</small><b>${state.days} / WEEK</b></div><div><small>${text("数据状态","DATA")}</small><b>${text("云端","CLOUD")}</b></div></div></section>
+    <section class="profile-panel"><div class="profile-main"><img src="${state.avatar}" alt="${escapeHtml(state.user.name)}"><div><h1>${text(`你好，${state.user.name}`, `Hi, ${state.user.name}`)}</h1><p>${escapeHtml(state.user.email)}</p></div><button class="utility-btn" data-route="profile-edit">${icon("edit")}</button></div><div class="profile-stats"><div><small>${text("当前目标","GOAL")}</small><b class="green">${goalLabel()}</b></div><div><small>${text("训练天数","DAYS")}</small><b>${state.days} / ${text("周","WEEK")}</b></div><div><small>${text("身体数据","BODY DATA")}</small><b>${state.weight ? displayWeight(state.weight) : text("待填写","EMPTY")}</b></div></div></section>
     <section class="settings-list">
       <button data-setting="language">${icon("sliders")}<span>${dual("语言","Language","b")}</span><em>${state.language === "zh" ? "简体中文" : "English"}</em>${icon("arrow")}</button>
       <button data-setting="units">${icon("activity")}<span>${dual("单位","Units","b")}</span><em>${state.units === "metric" ? "kg, cm" : "lb, ft"}</em>${icon("arrow")}</button>
@@ -801,6 +858,54 @@ function profileV2() {
     </section>
     <button class="equipment-summary" data-route="equipment"><div>${icon("dumbbell")}<span>${dual("我的器械","My Equipment","b")}<em>${state.equipment.size} ${text("件已添加","items")}</em></span></div>${icon("arrow")}</button>
     <button class="logout" data-logout>${icon("logout")} ${text("退出登录","Sign Out")}</button>${nav()}
+  </section>`;
+}
+
+function profileEditScreen() {
+  const metric = state.units === "metric";
+  const heightValue = state.height == null ? "" : (metric ? state.height : (state.height / 2.54).toFixed(1));
+  const weightValue = state.weight == null ? "" : (metric ? state.weight : (state.weight * 2.20462).toFixed(1));
+  const goalWeightValue = state.goalWeight == null ? "" : (metric ? state.goalWeight : (state.goalWeight * 2.20462).toFixed(1));
+  return `<section class="screen profile-edit-screen">${innerTop("编辑个人信息", "Edit Profile", "profile")}
+    <form id="profile-form">
+      <label class="avatar-editor"><img src="${state.avatar}" alt=""><span>${icon("camera")} ${text("更换头像", "Change Photo")}</span><input id="avatar-input" type="file" accept="image/*" hidden></label>
+      <section class="profile-form-section">
+        <h2>${text("账号信息", "Account")}</h2>
+        <label><span>${text("姓名", "Name")}</span><input name="name" value="${escapeHtml(state.user.name)}" required></label>
+        <label><span>${text("邮箱", "Email")}</span><input value="${escapeHtml(state.user.email)}" disabled></label>
+      </section>
+      <section class="profile-form-section">
+        <h2>${text("身体数据", "Body Data")}</h2>
+        <div class="profile-form-grid">
+          <label><span>${text("年龄", "Age")}</span><input name="age" type="number" min="13" max="100" value="${state.age ?? ""}" placeholder="--"></label>
+          <label><span>${text("身高", "Height")} (${metric ? "cm" : "in"})</span><input name="height" type="number" min="${metric ? 120 : 47}" max="${metric ? 230 : 91}" step="0.1" value="${heightValue}" placeholder="--"></label>
+          <label><span>${text("体重", "Weight")} (${metric ? "kg" : "lb"})</span><input name="weight" type="number" min="${metric ? 30 : 66}" max="${metric ? 300 : 660}" step="0.1" value="${weightValue}" placeholder="--"></label>
+          <label><span>${text("目标体重", "Goal Weight")} (${metric ? "kg" : "lb"})</span><input name="goalWeight" type="number" min="${metric ? 30 : 66}" max="${metric ? 300 : 660}" step="0.1" value="${goalWeightValue}" placeholder="--"></label>
+          <label><span>${text("体脂率", "Body Fat")} (%)</span><input name="bodyFat" type="number" min="3" max="60" step="0.1" value="${state.bodyFat ?? ""}" placeholder="--"></label>
+        </div>
+      </section>
+      <button class="primary-btn" type="submit">${text("保存个人信息", "Save Profile")} ${icon("check")}</button>
+    </form>
+  </section>`;
+}
+
+function authGateScreen() {
+  if (!state.cloudReady) {
+    return `<section class="screen auth-gate"><div class="auth-brand"><img src="${assets.logo}" alt="FitPlan AI"><strong>FitPlan AI</strong></div><div class="auth-loading"><i></i><span>${text("正在检查登录状态", "Checking session")}</span></div></section>`;
+  }
+  return `<section class="screen auth-gate">
+    ${statusBar()}
+    <header class="auth-brand"><img src="${assets.logo}" alt="FitPlan AI"><div><strong>FitPlan AI</strong><small>${text("你的私人健身规划工具", "Your personal fitness planner")}</small></div></header>
+    <section class="auth-gate-content">
+      <span class="auth-gate-mark">${icon("activity")}</span>
+      <h1>${text("训练，从适合你的计划开始", "Training starts with a plan built for you")}</h1>
+      <p>${text("登录后查看你的身体数据、器械、动作、训练计划和饮食记录。", "Sign in to access your body data, equipment, exercises, plans and nutrition logs.")}</p>
+    </section>
+    <div class="auth-gate-actions">
+      <button class="primary-btn" data-open-auth="login">${text("登录", "Sign In")} ${icon("arrow")}</button>
+      <button class="secondary-btn" data-open-auth="register">${text("创建免费账户", "Create Free Account")}</button>
+    </div>
+    <div class="language auth-gate-language"><button data-lang="zh" class="${state.language === "zh" ? "active" : ""}">中</button><button data-lang="en" class="${state.language === "en" ? "active" : ""}">EN</button></div>
   </section>`;
 }
 
@@ -820,20 +925,48 @@ function authSheet() {
   </section></div>`;
 }
 
+function planDaySheet() {
+  if (state.sheet !== "plan-day" || state.editingPlanDay === null) return "";
+  const day = state.planDays[state.editingPlanDay];
+  if (!day) return "";
+  const available = availableEquipmentKeys();
+  const choices = exerciseLibrary.filter(item => available.has(item.equipment) || day.exerciseIds.includes(item.id));
+  return `<div class="sheet-layer open" data-close-sheet><section class="bottom-sheet plan-day-sheet" role="dialog" aria-modal="true">
+    <div class="sheet-handle"></div>
+    <header class="sheet-header"><div><h2>${text("编辑", "Edit")} ${text(day.dayZh, day.dayEn)}</h2><p>${text("只显示你现有器械可完成的动作。", "Only exercises supported by your equipment are shown.")}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
+    <label class="day-duration"><span>${text("训练时长", "Duration")}</span><input type="number" min="10" max="180" step="5" value="${day.duration}" data-plan-day-duration><em>min</em></label>
+    <div class="plan-day-options">${choices.map(item => `<button class="${day.exerciseIds.includes(item.id) ? "active" : ""}" data-plan-day-exercise="${item.id}">
+      <img src="${item.image}" alt=""><span><b>${text(item.zh,item.en)}</b><small>${equipmentLabel(item.equipment)}</small></span><i>${day.exerciseIds.includes(item.id) ? icon("check") : ""}</i>
+    </button>`).join("")}</div>
+    <button class="primary-btn" data-save-plan-day>${text("保存当天计划", "Save Day")} ${icon("check")}</button>
+  </section></div>`;
+}
+
 function escapeHtml(value) {
   return String(value || "").replace(/[&<>"']/g, character => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[character]);
 }
 
 function render() {
-  const screens = { home, plan, log: logScreen, progress, profile: profileV2, setup, equipment, workout: workoutV2, food, "exercise-library": exerciseLibraryScreen };
-  app.innerHTML = (screens[state.route] || home)() + equipmentSheet() + guideSheet() + exerciseDetailSheet() + settingsSheet() + authSheet();
+  const screens = { home, plan, log: logScreen, progress, profile: profileV2, "profile-edit": profileEditScreen, setup, equipment, workout: workoutV2, food, "exercise-library": exerciseLibraryScreen };
+  if (!state.cloudReady || !state.user) {
+    app.innerHTML = authGateScreen() + authSheet();
+  } else {
+    app.innerHTML = (screens[state.route] || home)() + equipmentSheet() + guideSheet() + exerciseDetailSheet() + settingsSheet() + authSheet() + planDaySheet();
+  }
   bind();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 
 function navigate(route) {
-  state.previousRoute = state.route;
+  if (route === state.route) return;
+  state.routeStack.push(state.route);
   state.route = route;
+  transitionRender();
+}
+
+function goBack(fallback = "home") {
+  const previous = state.routeStack.pop();
+  state.route = previous && previous !== state.route ? previous : fallback;
   transitionRender();
 }
 
@@ -860,16 +993,68 @@ function toast(message) {
 
 function bind() {
   document.querySelectorAll("[data-route]").forEach(el => el.addEventListener("click", () => navigate(el.dataset.route)));
+  document.querySelectorAll("[data-back-route]").forEach(el => el.addEventListener("click", () => goBack(el.dataset.backRoute || "home")));
   document.querySelectorAll("[data-toast]").forEach(el => el.addEventListener("click", e => { e.stopPropagation(); toast(el.dataset.toast); }));
-  document.querySelectorAll("[data-lang]").forEach(el => el.addEventListener("click", () => { state.language = el.dataset.lang; persist(); render(); }));
-  document.querySelectorAll("[data-period]").forEach(el => el.addEventListener("click", () => {
-    state.period = el.dataset.period;
-    el.parentElement.querySelectorAll("button").forEach(x => x.classList.toggle("active", x === el));
-    const body = document.querySelector(".progress-body");
-    if (body) {
-      body.animate([{opacity:.2,transform:"translateY(5px)"},{opacity:1,transform:"translateY(0)"}],{duration:320,easing:"cubic-bezier(.22,1,.36,1)"});
-      body.innerHTML = progressBody();
+  document.querySelectorAll("[data-lang]").forEach(el => el.addEventListener("click", async () => {
+    state.language = el.dataset.lang;
+    persist();
+    if (state.user) api("/api/profile", { method: "PATCH", body: { language: state.language } }).catch(() => {});
+    render();
+  }));
+  document.querySelector("#avatar-input")?.addEventListener("change", async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    state.avatar = await resizeImage(file, 320, .82);
+    localStorage.setItem(`fitplan-avatar-${state.user.id}`, state.avatar);
+    persist();
+    const image = document.querySelector(".avatar-editor img");
+    if (image) image.src = state.avatar;
+  });
+  document.querySelector("#profile-form")?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const optionalNumber = key => form.get(key) === "" ? null : Number(form.get(key));
+    const heightInput = optionalNumber("height");
+    const weightInput = optionalNumber("weight");
+    const goalWeightInput = optionalNumber("goalWeight");
+    const payload = {
+      name: String(form.get("name") || "").trim(),
+      age: optionalNumber("age"),
+      heightCm: heightInput == null ? null : (state.units === "metric" ? heightInput : heightInput * 2.54),
+      weightKg: weightInput == null ? null : (state.units === "metric" ? weightInput : weightInput / 2.20462),
+      goalWeightKg: goalWeightInput == null ? null : (state.units === "metric" ? goalWeightInput : goalWeightInput / 2.20462),
+      bodyFat: optionalNumber("bodyFat"),
+    };
+    try {
+      const data = await api("/api/profile", { method: "PATCH", body: payload });
+      state.user = data.user;
+      applyCloudUser(data.user);
+      goBack("profile");
+      toast(text("个人信息已保存", "Profile saved"));
+    } catch (error) {
+      toast(error.message);
     }
+  });
+  document.querySelectorAll("[data-range-shortcut]").forEach(button => button.addEventListener("click", () => {
+    const end = new Date();
+    const start = new Date();
+    const days = button.dataset.rangeShortcut === "week" ? 6 : button.dataset.rangeShortcut === "month" ? 29 : 364;
+    start.setDate(end.getDate() - days);
+    state.dateRange = { start: localDateValue(start), end: localDateValue(end) };
+    persist();
+    render();
+  }));
+  document.querySelectorAll("[data-range-start],[data-range-end]").forEach(input => input.addEventListener("change", () => {
+    const start = document.querySelector("[data-range-start]")?.value;
+    const end = document.querySelector("[data-range-end]")?.value;
+    if (!start || !end || start > end) {
+      toast(text("请选择有效日期范围", "Choose a valid date range"));
+      return;
+    }
+    state.dateRange = { start, end };
+    persist();
+    const body = document.querySelector(".progress-body");
+    if (body) body.innerHTML = progressBody();
   }));
   document.querySelectorAll("[data-plan-period]").forEach(el => el.addEventListener("click", () => {
     state.planPeriod = el.dataset.planPeriod;
@@ -881,6 +1066,36 @@ function bind() {
       bindRoutesAndToasts(body);
     }
   }));
+  document.querySelectorAll("[data-edit-plan-day]").forEach(button => button.addEventListener("click", () => {
+    state.editingPlanDay = Number(button.dataset.editPlanDay);
+    state.sheet = "plan-day";
+    render();
+  }));
+  document.querySelectorAll("[data-plan-day-workout]").forEach(button => button.addEventListener("click", () => {
+    const day = state.planDays[Number(button.dataset.planDayWorkout)];
+    if (!day?.exerciseIds?.length) return toast(text("请先为当天添加动作", "Add exercises to this day first"));
+    state.selectedExercises = new Set(day.exerciseIds);
+    persist();
+    navigate("workout");
+  }));
+  document.querySelectorAll("[data-plan-day-exercise]").forEach(button => button.addEventListener("click", () => {
+    const day = state.planDays[state.editingPlanDay];
+    const id = button.dataset.planDayExercise;
+    day.exerciseIds.includes(id) ? day.exerciseIds.splice(day.exerciseIds.indexOf(id), 1) : day.exerciseIds.push(id);
+    button.classList.toggle("active", day.exerciseIds.includes(id));
+    button.querySelector("i").innerHTML = day.exerciseIds.includes(id) ? icon("check") : "";
+  }));
+  document.querySelector("[data-save-plan-day]")?.addEventListener("click", async () => {
+    const day = state.planDays[state.editingPlanDay];
+    day.duration = Math.max(10, Math.min(180, Number(document.querySelector("[data-plan-day-duration]")?.value) || state.duration));
+    state.selectedExercises = new Set(state.planDays.flatMap(item => item.exerciseIds));
+    persist();
+    if (state.user) await saveCurrentPlanCloud();
+    state.sheet = null;
+    state.editingPlanDay = null;
+    render();
+    toast(text("当天计划已更新", "Day updated"));
+  });
   document.querySelectorAll("[data-stepper]").forEach(el => el.addEventListener("click", () => {
     const key = el.dataset.stepper;
     const delta = Number(el.dataset.delta);
@@ -948,14 +1163,28 @@ function bind() {
   document.querySelector("[data-next]")?.addEventListener("click", () => { state.setupStep += 1; render(); });
   document.querySelector("[data-back]")?.addEventListener("click", () => {
     if (state.route === "setup" && state.setupStep > 1) state.setupStep -= 1;
-    else navigate("home");
+    else return goBack("profile");
     render();
   });
-  document.querySelector("[data-finish]")?.addEventListener("click", e => {
+  document.querySelector("[data-finish]")?.addEventListener("click", async e => {
     const standalone = e.currentTarget.dataset.finish === "true";
+    const available = availableEquipmentKeys();
+    state.selectedExercises = new Set([...state.selectedExercises].filter(id => {
+      const exercise = exerciseLibrary.find(item => item.id === id);
+      return exercise && available.has(exercise.equipment);
+    }));
+    ensurePlanDays(true);
+    if (state.user) {
+      try {
+        await saveEquipmentCloud();
+        if (state.planId || state.selectedExercises.size) await saveCurrentPlanCloud();
+      }
+      catch (error) { return toast(error.message); }
+    }
     state.setupStep = 1;
-    state.route = "home";
-    persist(); render();
+    persist();
+    if (standalone) goBack("profile");
+    else navigate("exercise-library");
     toast(text(standalone ? "器械设置已保存" : "个性化计划已生成", standalone ? "Equipment saved" : "Personal plan generated"));
   });
   document.querySelector("[data-custom-equipment]")?.addEventListener("click", () => {
@@ -1008,6 +1237,7 @@ function bind() {
       usageSteps: state.customEquipmentDraft.usageSteps,
       commonMistakes: state.customEquipmentDraft.commonMistakes,
       targetMuscles: state.customEquipmentDraft.targetMuscles,
+      equipmentKey: state.customEquipmentDraft.equipmentKey || inferEquipmentKey(name),
     };
     if (existing) Object.assign(existing, details);
     else state.customEquipment.push(details);
@@ -1033,33 +1263,49 @@ function bind() {
     }
   });
   document.querySelector("[data-save-food]")?.addEventListener("click", async () => {
+    if (!state.ingredients.length) return toast(text("请先拍照识别食物", "Scan a meal first"));
     persist();
     if (state.user) {
       try {
-        await api("/api/food-logs", {
+        const result = await api("/api/food-logs", {
           method: "POST",
           body: {
-            mealNameZh: "AI 识别餐食",
-            mealNameEn: "AI Recognized Meal",
+            mealNameZh: state.foodAnalysis?.dishNameZh || "已识别餐食",
+            mealNameEn: state.foodAnalysis?.dishNameEn || "Recognized Meal",
             calories: state.ingredients.reduce((sum, item) => sum + Number(item.kcal || 0), 0),
             ingredients: state.ingredients
           }
         });
+        state.foodLogs.unshift({
+          id: result.id,
+          eaten_at: new Date().toISOString(),
+          meal_name_zh: state.foodAnalysis?.dishNameZh || "已识别餐食",
+          meal_name_en: state.foodAnalysis?.dishNameEn || "Recognized Meal",
+          calories: state.ingredients.reduce((sum, item) => sum + Number(item.kcal || 0), 0),
+          ingredients: state.ingredients,
+        });
+        state.ingredients = [];
+        state.foodImage = null;
+        state.foodAnalysis = null;
+        persist();
+        navigate("log");
         toast(text("餐食记录已保存到云端", "Meal saved to cloud"));
       } catch (error) { toast(error.message); }
     } else toast(text("餐食记录已保存到本机", "Meal saved locally"));
   });
-  document.querySelector("#food-input")?.addEventListener("change", e => {
+  document.querySelectorAll("#food-input,#food-retry-input").forEach(input => input.addEventListener("change", e => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       state.foodImage = reader.result;
+      state.ingredients = [];
+      state.foodAnalysis = null;
       render();
       analyzeFood(reader.result);
     };
     reader.readAsDataURL(file);
-  });
+  }));
   document.querySelector("#equipment-search")?.addEventListener("input", e => {
     const query = e.target.value.trim().toLowerCase();
     document.querySelectorAll(".equipment-item").forEach(row => {
@@ -1075,10 +1321,14 @@ function bind() {
     render();
     requestAnimationFrame(() => document.querySelector(".sheet-layer")?.classList.add("open"));
   }));
-  document.querySelectorAll("[data-setting-value]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll("[data-setting-value]").forEach(button => button.addEventListener("click", async () => {
     if (button.dataset.settingKind === "language") state.language = button.dataset.settingValue;
     else state.units = button.dataset.settingValue;
     persist();
+    if (state.user) {
+      const key = button.dataset.settingKind === "language" ? "language" : "units";
+      api("/api/profile", { method: "PATCH", body: { [key]: state[key] } }).catch(() => {});
+    }
     state.sheet = null;
     render();
     toast(text("设置已更新","Settings updated"));
@@ -1098,31 +1348,22 @@ function bindAdvanced() {
   });
   document.querySelector("#exercise-search")?.addEventListener("input", event => {
     state.exerciseFilter.query = event.target.value;
-    const catalog = document.querySelector(".exercise-catalog");
-    if (catalog) catalog.innerHTML = filteredExercises().map(exerciseCard).join("") || `<div class="empty-state"><b>${text("没有匹配动作","No matching exercises")}</b></div>`;
-    bindAdvanced();
+    refreshExerciseCatalogUI();
   });
   document.querySelectorAll("[data-muscle]").forEach(button => button.addEventListener("click", () => {
     state.exerciseFilter.muscle = button.dataset.muscle;
-    render();
+    document.querySelectorAll("[data-muscle]").forEach(item => item.classList.toggle("active", item === button));
+    refreshExerciseCatalogUI();
   }));
   document.querySelector("[data-availability]")?.addEventListener("click", () => {
     state.exerciseFilter.equipment = state.exerciseFilter.equipment === "available" ? "all" : "available";
-    render();
+    const button = document.querySelector("[data-availability]");
+    button?.classList.toggle("active", state.exerciseFilter.equipment === "available");
+    const indicator = button?.querySelector("i");
+    if (indicator) indicator.innerHTML = state.exerciseFilter.equipment === "available" ? icon("check") : "";
+    refreshExerciseCatalogUI();
   });
-  document.querySelectorAll("[data-toggle-exercise]").forEach(button => button.addEventListener("click", event => {
-    event.stopPropagation();
-    const id = button.dataset.toggleExercise;
-    state.selectedExercises.has(id) ? state.selectedExercises.delete(id) : state.selectedExercises.add(id);
-    persist();
-    refreshExerciseSelectionUI(id);
-  }));
-  document.querySelectorAll("[data-exercise-detail]").forEach(button => button.addEventListener("click", () => {
-    state.exerciseDetail = exerciseLibrary.find(item => item.id === button.dataset.exerciseDetail);
-    state.sheet = "exercise-detail";
-    render();
-    requestAnimationFrame(() => document.querySelector(".sheet-layer")?.classList.add("open"));
-  }));
+  bindExerciseCatalogInteractions();
   document.querySelectorAll("[data-complete-exercise]").forEach(button => button.addEventListener("click", () => {
     const id = button.dataset.completeExercise;
     state.completedExercises.has(id) ? state.completedExercises.delete(id) : state.completedExercises.add(id);
@@ -1145,7 +1386,8 @@ function bindAdvanced() {
     }
     state.selectedExercises = new Set(recommended.slice(0, Math.max(5, Math.min(8, recommended.length))).map(item => item.id));
     persist();
-    render();
+    refreshExerciseCatalogUI();
+    refreshLibrarySummaryUI();
     toast(text("已按现有器械生成训练动作", "Workout adapted to your equipment"));
   }));
   document.querySelector("[data-use-selection]")?.addEventListener("click", async () => {
@@ -1153,6 +1395,7 @@ function bindAdvanced() {
       toast(text("请至少选择一个动作", "Select at least one exercise"));
       return;
     }
+    ensurePlanDays(true);
     if (state.user) {
       try {
         await saveCurrentPlanCloud();
@@ -1178,6 +1421,32 @@ function bindAdvanced() {
   document.querySelector("[data-logout]")?.addEventListener("click", logoutCloud);
 }
 
+function bindExerciseCatalogInteractions(root = document) {
+  root.querySelectorAll("[data-toggle-exercise]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const id = button.dataset.toggleExercise;
+    state.selectedExercises.has(id) ? state.selectedExercises.delete(id) : state.selectedExercises.add(id);
+    persist();
+    refreshExerciseSelectionUI(id);
+  }));
+  root.querySelectorAll("[data-exercise-detail]").forEach(button => button.addEventListener("click", () => {
+    state.exerciseDetail = exerciseLibrary.find(item => item.id === button.dataset.exerciseDetail);
+    state.sheet = "exercise-detail";
+    render();
+    requestAnimationFrame(() => document.querySelector(".sheet-layer")?.classList.add("open"));
+  }));
+}
+
+function refreshExerciseCatalogUI() {
+  const catalog = document.querySelector(".exercise-catalog");
+  if (!catalog) return;
+  const items = filteredExercises();
+  catalog.innerHTML = items.map(exerciseCard).join("") || `<div class="empty-state">${icon("filter")}<b>${text("没有匹配动作","No matching exercises")}</b><p>${text("切换肌群或关闭器械限制。","Change the muscle group or equipment filter.")}</p></div>`;
+  const resultCount = document.querySelector("[data-result-count]");
+  if (resultCount) resultCount.textContent = `${items.length} ${text("个结果", "results")}`;
+  bindExerciseCatalogInteractions(catalog);
+}
+
 function refreshExerciseSelectionUI(id) {
   const selected = state.selectedExercises.has(id);
   document.querySelectorAll(`[data-toggle-exercise="${id}"]`).forEach(button => {
@@ -1190,10 +1459,24 @@ function refreshExerciseSelectionUI(id) {
   document.querySelectorAll(`[data-exercise-detail="${id}"]`).forEach(button => {
     button.closest(".catalog-card")?.classList.toggle("selected", selected);
   });
-  const count = document.querySelector(".library-summary strong");
-  if (count) count.innerHTML = `${state.selectedExercises.size}<small>${text("已选择", "SELECTED")}</small>`;
-  const useButton = document.querySelector("[data-use-selection]");
-  if (useButton) useButton.innerHTML = `${icon("check")} ${text(`使用 ${state.selectedExercises.size} 个动作`, `Use ${state.selectedExercises.size} Exercises`)}`;
+  refreshLibrarySummaryUI();
+}
+
+function refreshLibrarySummaryUI() {
+  const selected = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+  const count = document.querySelector("[data-selected-count]");
+  if (count) count.textContent = selected.length;
+  const duration = document.querySelector("[data-estimated-time]");
+  if (duration) duration.textContent = selected.length ? `${selected.length * 8}${text(" 分钟", " min")}` : "--";
+  const muscles = document.querySelector("[data-muscle-count]");
+  if (muscles) muscles.textContent = new Set(selected.map(item => item.muscle)).size || "--";
+  const strip = document.querySelector("[data-selected-strip]");
+  if (strip) {
+    strip.innerHTML = selectedExerciseStrip(selected);
+    bindExerciseCatalogInteractions(strip);
+  }
+  const useButton = document.querySelector("[data-use-selection] span");
+  if (useButton) useButton.innerHTML = dual(`加入训练计划 · ${selected.length}`, `Add to Plan · ${selected.length}`, "b");
 }
 
 async function handleAuth(event) {
@@ -1206,10 +1489,12 @@ async function handleAuth(event) {
     const data = await api(`/api/auth/${state.authMode}`, { method: "POST", body: payload });
     state.user = data.user;
     state.sheet = null;
+    clearAccountState();
+    state.user = data.user;
     applyCloudUser(data.user);
-    await syncLocalData();
+    await loadAccountData();
     render();
-    toast(text("登录成功，数据已同步", "Signed in and synced"));
+    toast(text("登录成功", "Signed in"));
   } catch (error) {
     state.authBusy = false;
     toast(error.message);
@@ -1219,6 +1504,7 @@ async function handleAuth(event) {
 async function logoutCloud() {
   try { await api("/api/auth/logout", { method: "POST" }); } catch {}
   state.user = null;
+  clearAccountState();
   render();
 }
 
@@ -1226,67 +1512,94 @@ async function loadCloudSession() {
   try {
     const data = await api("/api/auth/me");
     state.user = data.user;
-    if (data.user) applyCloudUser(data.user);
+    if (data.user) {
+      applyCloudUser(data.user);
+      await loadAccountData();
+    }
     state.cloudReady = true;
     render();
   } catch {
     state.cloudReady = true;
+    state.user = null;
+    clearAccountState();
+    render();
   }
+}
+
+function clearAccountState() {
+  state.age = null;
+  state.height = null;
+  state.weight = null;
+  state.goalWeight = null;
+  state.bodyFat = null;
+  state.avatar = assets.avatar;
+  state.equipment = new Set();
+  state.customEquipment = [];
+  state.selectedExercises = new Set();
+  state.planDays = [];
+  state.planId = null;
+  state.planStarted = false;
+  state.workoutLogs = [];
+  state.foodLogs = [];
+  state.ingredients = [];
+  state.foodImage = null;
+  state.foodAnalysis = null;
+  state.completedExercises = new Set();
+  state.route = "home";
+  state.routeStack = ["home"];
 }
 
 function applyCloudUser(user) {
   if (!user) return;
   state.language = user.language || state.language;
   state.units = user.units || state.units;
-  state.age = user.age || state.age;
-  state.weight = user.weightKg || state.weight;
-  state.goalWeight = user.goalWeightKg || state.goalWeight;
-  state.bodyFat = user.bodyFat || state.bodyFat;
+  state.age = user.age ?? null;
+  state.height = user.heightCm ?? null;
+  state.weight = user.weightKg ?? null;
+  state.goalWeight = user.goalWeightKg ?? null;
+  state.bodyFat = user.bodyFat ?? null;
   state.goal = user.goal || state.goal;
-  state.days = user.trainingDays || state.days;
-  state.duration = user.workoutDuration || state.duration;
+  state.days = user.trainingDays ?? state.days;
+  state.duration = user.workoutDuration ?? state.duration;
+  state.avatar = localStorage.getItem(`fitplan-avatar-${user.id}`) || user.avatarUrl || assets.avatar;
   persist();
 }
 
-async function syncLocalData() {
+async function loadAccountData() {
   if (!state.user) return;
-  await Promise.all([
-    api("/api/profile", {
-      method: "PATCH",
-      body: {
-        language: state.language, units: state.units, age: state.age, weightKg: state.weight,
-        goalWeightKg: state.goalWeight, bodyFat: state.bodyFat, goal: state.goal,
-        trainingDays: state.days, workoutDuration: state.duration
-      }
-    }),
-    api("/api/equipment", {
-      method: "PUT",
-      body: {
-        equipment: [...state.equipment].map(name => {
-          const custom = state.customEquipment.find(item => item.name === name);
-          return custom
-            ? { ...custom, nameZh: name, nameEn: custom.en, key: custom.equipmentKey || "", custom: true }
-            : { nameZh: name, nameEn: equipmentItems.find(item => item[0] === name)?.[1] || name, key: equipmentKeyMap[name] || "", custom: false };
-        })
-      }
-    }),
-    api("/api/plans", {
-      method: "POST",
-      body: {
-        name: "FitPlan Custom",
-        goal: state.goal,
-        status: state.planStarted ? "active" : "draft",
-        plan: { exerciseIds: [...state.selectedExercises], days: state.days, duration: state.duration }
-      }
-    })
+  const [equipmentData, planData, workoutData, foodData] = await Promise.all([
+    api("/api/equipment"),
+    api("/api/plans"),
+    api("/api/workouts"),
+    api("/api/food-logs"),
   ]);
+  const equipmentRows = equipmentData.equipment || [];
+  state.equipment = new Set(equipmentRows.map(item => item.name_zh).filter(Boolean));
+  state.customEquipment = equipmentRows.filter(item => item.is_custom).map(item => ({
+    ...(item.details || {}),
+    name: item.name_zh,
+    en: item.name_en,
+    equipmentKey: item.equipment_key,
+    type: item.load_type,
+    unit: item.unit,
+    increment: item.increment_value,
+  }));
+  const currentPlan = (planData.plans || [])[0];
+  state.planId = currentPlan?.id || null;
+  state.planStarted = currentPlan?.status === "active";
+  state.selectedExercises = new Set(currentPlan?.plan?.exerciseIds || []);
+  state.planDays = Array.isArray(currentPlan?.plan?.planDays) ? currentPlan.plan.planDays : [];
+  state.workoutLogs = workoutData.workouts || [];
+  state.foodLogs = foodData.foodLogs || [];
+  persist();
 }
 
 async function saveCurrentPlanCloud() {
   if (!state.user) return;
-  await api("/api/plans", {
+  const result = await api("/api/plans", {
     method: "POST",
     body: {
+      id: state.planId || undefined,
       name: text("我的自定义训练", "My Custom Workout"),
       goal: state.goal,
       status: state.planStarted ? "active" : "draft",
@@ -1294,8 +1607,26 @@ async function saveCurrentPlanCloud() {
         exerciseIds: [...state.selectedExercises],
         days: state.days,
         duration: state.duration,
-        equipment: [...state.equipment]
+        equipment: [...state.equipment],
+        planDays: state.planDays,
       }
+    }
+  });
+  state.planId = result.id;
+  persist();
+}
+
+async function saveEquipmentCloud() {
+  if (!state.user) return;
+  await api("/api/equipment", {
+    method: "PUT",
+    body: {
+      equipment: [...state.equipment].map(name => {
+        const custom = state.customEquipment.find(item => item.name === name);
+        return custom
+          ? { ...custom, nameZh: name, nameEn: custom.en, key: custom.equipmentKey || "", custom: true }
+          : { nameZh: name, nameEn: equipmentItems.find(item => item[0] === name)?.[1] || name, key: equipmentKeyMap[name] || "", custom: false };
+      })
     }
   });
 }
@@ -1303,15 +1634,27 @@ async function saveCurrentPlanCloud() {
 async function saveWorkoutCloud() {
   if (!state.user) return;
   const selected = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
-  await api("/api/workouts", {
+  const startedAt = new Date(Date.now() - selected.length * 8 * 60000).toISOString();
+  const completedAt = new Date().toISOString();
+  const calories = selected.length * 75;
+  const result = await api("/api/workouts", {
     method: "POST",
     body: {
-      startedAt: new Date(Date.now() - selected.length * 8 * 60000).toISOString(),
-      completedAt: new Date().toISOString(),
+      planId: state.planId,
+      startedAt,
+      completedAt,
       durationMinutes: selected.length * 8,
-      calories: selected.length * 75,
+      calories,
       exercises: selected.map(item => ({ id: item.id, completed: state.completedExercises.has(item.id), sets: item.sets }))
     }
+  });
+  state.workoutLogs.unshift({
+    id: result.id,
+    started_at: startedAt,
+    completed_at: completedAt,
+    duration_minutes: selected.length * 8,
+    calories,
+    exercises: selected.map(item => ({ id: item.id, completed: state.completedExercises.has(item.id), sets: item.sets })),
   });
 }
 
@@ -1334,10 +1677,14 @@ function bindRoutesAndToasts(root = document) {
 }
 
 function bindPlanStart(root = document) {
-  root.querySelectorAll("[data-start-plan]").forEach(button => button.addEventListener("click", () => {
+  root.querySelectorAll("[data-start-plan]").forEach(button => button.addEventListener("click", async () => {
     state.planStarted = !state.planStarted;
     persist();
     button.innerHTML = `${icon(state.planStarted ? "check" : "play")} ${text(state.planStarted ? "计划进行中" : "开始计划", state.planStarted ? "Plan In Progress" : "Start Plan")}`;
+    if (state.user) {
+      try { await saveCurrentPlanCloud(); }
+      catch (error) { toast(error.message); }
+    }
     toast(text(state.planStarted ? "计划已开始并保存到本机" : "计划已暂停", state.planStarted ? "Plan started and saved locally" : "Plan paused"));
   }));
 }
@@ -1348,6 +1695,27 @@ function animateNumber(node, value) {
     { opacity: 1, transform: "translateY(0) scale(1)" },
   ], { duration: 280, easing: "cubic-bezier(.22,1,.36,1)" });
   node.textContent = value;
+}
+
+function resizeImage(file, maxSize = 320, quality = .82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = reject;
+      image.onload = () => {
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 async function analyzeEquipment(image) {
@@ -1363,6 +1731,7 @@ async function analyzeEquipment(image) {
       usageSteps: result.usageSteps || [],
       commonMistakes: result.commonMistakes || [],
       targetMuscles: result.targetMuscles || [],
+      equipmentKey: result.equipmentKey || inferEquipmentKey(result.nameZh, result.nameEn),
     });
     render();
     requestAnimationFrame(() => document.querySelector(".sheet-layer")?.classList.add("open"));
@@ -1380,6 +1749,7 @@ async function analyzeFood(image) {
   try {
     const result = await postImage("/api/analyze-food", image);
     state.ingredients = result.ingredients;
+    state.foodAnalysis = result;
     persist();
     render();
     toast(text("食物识别完成，请确认份量", "Food recognized. Please confirm portions."));

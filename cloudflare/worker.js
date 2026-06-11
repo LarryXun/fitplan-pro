@@ -8,6 +8,7 @@ const equipmentSchema = {
   properties: {
     nameZh: { type: "STRING" },
     nameEn: { type: "STRING" },
+    equipmentKey: { type: "STRING", enum: ["dumbbell", "barbell", "bench", "treadmill", "cable", "bands", "pull-up-bar", "kettlebell", "smith-machine", "leg-press", "bodyweight", "other"] },
     type: { type: "STRING", enum: ["selectorized", "plates", "fixed", "bodyweight"] },
     unit: { type: "STRING", enum: ["kg", "lb"] },
     increment: { type: "NUMBER" },
@@ -16,7 +17,7 @@ const equipmentSchema = {
     commonMistakes: { type: "ARRAY", items: { type: "STRING" } },
     targetMuscles: { type: "ARRAY", items: { type: "STRING" } }
   },
-  required: ["nameZh", "nameEn", "type", "unit", "increment", "confidence", "usageSteps", "commonMistakes", "targetMuscles"]
+  required: ["nameZh", "nameEn", "equipmentKey", "type", "unit", "increment", "confidence", "usageSteps", "commonMistakes", "targetMuscles"]
 };
 
 const foodSchema = {
@@ -281,7 +282,7 @@ function sanitizeUser(row) {
     id: row.id, email: row.email, name: row.name, language: row.language, units: row.units,
     age: row.age, heightCm: row.height_cm, weightKg: row.weight_kg, goalWeightKg: row.goal_weight_kg,
     bodyFat: row.body_fat, goal: row.goal, trainingDays: row.training_days,
-    workoutDuration: row.workout_duration, createdAt: row.created_at
+    workoutDuration: row.workout_duration, avatarUrl: row.avatar_url || null, createdAt: row.created_at
   };
 }
 
@@ -302,7 +303,7 @@ async function analyze(image, kind, apiKey) {
   const mimeType = metadata.match(/data:([^;]+)/)?.[1] || "image/jpeg";
   const equipment = kind === "equipment";
   const prompt = equipment
-    ? "Identify this gym equipment for a bilingual personal fitness app. Determine its load system. Return concise Simplified Chinese usage steps, common mistakes and target muscles. If the increment is unreadable, use an editable 5 kg estimate and lower confidence."
+    ? "Identify this gym equipment for a bilingual personal fitness app. Choose the closest canonical equipmentKey from the schema so it can filter compatible exercises. Determine its load system. Return concise Simplified Chinese usage steps, common mistakes and target muscles. If the increment is unreadable, use an editable 5 kg estimate and lower confidence."
     : "Analyze this meal for a calorie app covering Chinese, Middle Eastern and Western foods. Identify visible ingredients and estimate edible portions and calories. Return concise bilingual names. Values must remain editable.";
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`, {
     method: "POST",
