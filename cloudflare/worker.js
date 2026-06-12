@@ -210,11 +210,16 @@ async function savePlan(request, env) {
   const user = await requireUser(request, env);
   const body = await request.json();
   const id = body.id || crypto.randomUUID();
-  await env.DB.prepare(
+  if (body.id) {
+    const existing = await env.DB.prepare("SELECT user_id FROM training_plans WHERE id = ?").bind(id).first();
+    if (existing && existing.user_id !== user.id) return json({ error: "无权修改该计划" }, 403);
+  }
+  const result = await env.DB.prepare(
     `INSERT INTO training_plans (id,user_id,name,goal,status,plan_json) VALUES (?,?,?,?,?,?)
      ON CONFLICT(id) DO UPDATE SET name=excluded.name,goal=excluded.goal,status=excluded.status,plan_json=excluded.plan_json,updated_at=CURRENT_TIMESTAMP
      WHERE user_id=excluded.user_id`
   ).bind(id, user.id, body.name || "My Plan", body.goal || user.goal, body.status || "active", JSON.stringify(body.plan || {})).run();
+  if (!result.success) return json({ error: "计划保存失败" }, 500);
   return json({ id, ok: true }, 201);
 }
 

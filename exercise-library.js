@@ -24,7 +24,7 @@ window.FITPLAN_EXERCISES = [
     mistakesZh:["凳面角度过高","肩部前移","手腕失去中立"], mistakesEn:["Bench too steep","Shoulders moving forward","Bent wrists"]
   },
   {
-    id:"seated-row", zh:"窄握坐姿划船", en:"Seated Cable Row", muscle:"back", secondary:"biceps", equipment:"cable",
+    id:"seated-row", zh:"窄握坐姿划船", en:"Seated Cable Row", muscle:"back", secondary:"biceps", equipment:"seated-row",
     image:"https://wger.de/media/exercise-images/512/b938437e-ff00-4679-9036-acb41bb28bbd.png",
     videoUrl:"https://wger.de/media/exercise-video/512/fff4c294-93f0-4926-b3a2-bf59ad4afaa5.MOV",
     sets:"4 × 12", rest:"60 sec", difficulty:"beginner", author:"wger.de", license:"CC-BY-SA 3",
@@ -94,5 +94,61 @@ window.FITPLAN_EXERCISES = [
     sets:"4 × 12", rest:"75 sec", difficulty:"beginner", author:"Bret Contreras", license:"CC-BY-SA 4",
     stepsZh:["肩胛下缘支撑在凳面","下巴微收并保持肋骨下沉","伸髋到躯干与大腿接近一线"], stepsEn:["Support the lower shoulder blades on the bench","Tuck the chin and keep ribs down","Extend until torso and thighs align"],
     mistakesZh:["腰椎过伸","双脚位置过远","顶端没有收紧臀部"], mistakesEn:["Overextending the back","Feet too far away","No glute squeeze"]
+  },
+  {
+    id:"lat-pulldown", zh:"高位下拉", en:"Lat Pulldown", muscle:"back", secondary:"biceps", equipment:"lat-pulldown",
+    image:"assets/ex-pulldown.jpg", videoUrl:"https://wger.de/media/exercise-video/475/83067ffe-ccb9-4e22-8507-5131b211ce74.MOV",
+    sets:"4 × 10", rest:"75 sec", difficulty:"beginner", author:"FitPlan AI", license:"Reference",
+    stepsZh:["固定大腿垫并挺胸","下沉肩胛后把横杆拉向上胸","控制回程直至背阔肌充分伸展"], stepsEn:["Secure the thigh pad","Pull toward the upper chest","Control the return to a full stretch"],
+    mistakesZh:["身体过度后仰","用手臂猛拉","回程失去控制"], mistakesEn:["Leaning too far back","Yanking with the arms","Uncontrolled return"]
+  },
+  {
+    id:"machine-chest-press", zh:"坐姿推胸", en:"Machine Chest Press", muscle:"chest", secondary:"triceps", equipment:"chest-press",
+    image:"assets/plan-push.jpg", videoUrl:"https://wger.de/media/exercise-video/73/2bdb390c-312c-4497-a722-5eed2c823e5a.MOV",
+    sets:"4 × 10", rest:"75 sec", difficulty:"beginner", author:"FitPlan AI", license:"Reference",
+    stepsZh:["把手调至胸部中线","肩胛贴紧靠垫","向前推起并控制返回"], stepsEn:["Align handles with mid chest","Keep shoulder blades on the pad","Press and return under control"],
+    mistakesZh:["座椅高度不合适","肩部向前顶","配重片猛烈碰撞"], mistakesEn:["Incorrect seat height","Shoulders rolling forward","Slamming the stack"]
+  },
+  {
+    id:"pec-deck-fly", zh:"蝴蝶机夹胸", en:"Pec Deck Fly", muscle:"chest", secondary:"shoulders", equipment:"pec-deck",
+    image:"assets/plan-push.jpg", videoUrl:"https://wger.de/media/exercise-video/75/080c799b-8afd-4130-8d72-9cef0cd79f54.MOV",
+    sets:"3 × 12", rest:"60 sec", difficulty:"beginner", author:"FitPlan AI", license:"Reference",
+    stepsZh:["胸口抬起并贴住靠垫","肘部保持轻微弯曲","双臂向中间合拢并缓慢打开"], stepsEn:["Keep the chest tall","Maintain soft elbows","Bring arms together and open slowly"],
+    mistakesZh:["耸肩","手臂完全伸直","打开幅度过大"], mistakesEn:["Shrugging","Locked elbows","Excessive range"]
+  },
+  {
+    id:"machine-shoulder-press", zh:"器械肩推", en:"Machine Shoulder Press", muscle:"shoulders", secondary:"triceps", equipment:"shoulder-press",
+    image:"assets/ex-rear-delt.jpg", videoUrl:"https://wger.de/media/exercise-video/567/64f33c19-1d96-4b7c-af17-6c6a4941c614.MOV",
+    sets:"4 × 10", rest:"75 sec", difficulty:"beginner", author:"FitPlan AI", license:"Reference",
+    stepsZh:["把手起始位置调至耳朵两侧","核心收紧并贴住靠垫","向上推起后控制下放"], stepsEn:["Set handles beside the ears","Brace against the pad","Press up and lower under control"],
+    mistakesZh:["腰部过度反弓","耸肩","肘部锁死"], mistakesEn:["Overarching","Shrugging","Hard elbow lockout"]
+  },
+  {
+    id:"machine-leg-extension", zh:"腿屈伸", en:"Leg Extension", muscle:"legs", secondary:"quadriceps", equipment:"leg-extension",
+    image:"assets/plan-legs.jpg", videoUrl:"https://wger.de/media/exercise-video/371/6aae16b4-01b9-4eb4-935c-3250f84d2c59.MOV",
+    sets:"3 × 12", rest:"60 sec", difficulty:"beginner", author:"FitPlan AI", license:"Reference",
+    stepsZh:["膝关节对齐器械转轴","小腿垫放在脚踝上方","伸膝后缓慢下降"], stepsEn:["Align knees with the machine pivot","Place the pad above the ankles","Extend and lower slowly"],
+    mistakesZh:["转轴未对齐","借助惯性甩动","顶端锁死膝盖"], mistakesEn:["Misaligned pivot","Swinging the weight","Locking the knees"]
+  },
+  {
+    id:"machine-leg-curl", zh:"腿弯举", en:"Leg Curl", muscle:"legs", secondary:"hamstrings", equipment:"leg-curl",
+    image:"assets/plan-legs.jpg", videoUrl:"https://wger.de/media/exercise-video/507/307e7276-a14d-4ea0-b579-f5b0dbc6f5af.MOV",
+    sets:"3 × 12", rest:"60 sec", difficulty:"beginner", author:"FitPlan AI", license:"Reference",
+    stepsZh:["膝关节对齐转轴","收紧核心并固定髋部","屈膝后控制回到起点"], stepsEn:["Align knees with the pivot","Keep hips stable","Curl and return under control"],
+    mistakesZh:["髋部抬起","动作过快","使用过大重量"], mistakesEn:["Hips lifting","Moving too fast","Using too much weight"]
+  },
+  {
+    id:"hack-squat", zh:"哈克深蹲", en:"Hack Squat", muscle:"legs", secondary:"glutes", equipment:"hack-squat",
+    image:"assets/plan-legs.jpg", videoUrl:"https://wger.de/media/exercise-video/257/93145935-29db-4e52-9d2d-174b1c30c098.MOV",
+    sets:"4 × 10", rest:"90 sec", difficulty:"intermediate", author:"FitPlan AI", license:"Reference",
+    stepsZh:["背部和肩部贴紧靠垫","双脚放在平台合适位置","膝盖沿脚尖方向下蹲并推起"], stepsEn:["Keep back and shoulders on the pad","Set feet securely","Track knees over toes"],
+    mistakesZh:["膝盖内扣","脚跟抬起","下蹲深度失控"], mistakesEn:["Knees collapsing","Heels lifting","Uncontrolled depth"]
+  },
+  {
+    id:"smith-squat", zh:"史密斯深蹲", en:"Smith Machine Squat", muscle:"legs", secondary:"glutes", equipment:"smith-machine",
+    image:"assets/plan-legs.jpg", videoUrl:"https://wger.de/media/exercise-video/257/93145935-29db-4e52-9d2d-174b1c30c098.MOV",
+    sets:"4 × 8", rest:"90 sec", difficulty:"beginner", author:"FitPlan AI", license:"Reference",
+    stepsZh:["先设置安全限位","双脚放在杠铃前方适当位置","解锁后沿固定轨迹下蹲"], stepsEn:["Set the safety stops","Position feet correctly","Unlock and squat along the fixed path"],
+    mistakesZh:["未设置限位","双脚位置过近","完成后未挂稳杠铃"], mistakesEn:["No safety stops","Feet too close","Bar not securely racked"]
   }
 ];

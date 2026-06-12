@@ -36,10 +36,13 @@ const state = {
   duration: saved.duration || 45,
   avatar: saved.avatar || assets.avatar,
   equipment: new Set(saved.equipment || []),
+  equipmentCategory: "common",
   customEquipment: (saved.customEquipment || []).map(item => typeof item === "string"
     ? { name: item, en: "Custom", type: "selectorized", unit: "kg", increment: 5 }
     : item),
-  activeWorkout: false,
+  activeWorkout: Boolean(saved.activeWorkout),
+  workoutStartedAt: saved.workoutStartedAt || null,
+  workoutDraft: saved.workoutDraft || {},
   planStarted: saved.planStarted || false,
   planId: saved.planId || null,
   planDays: Array.isArray(saved.planDays) ? saved.planDays : [],
@@ -137,6 +140,9 @@ function persist() {
     planDays: state.planDays,
     dateRange: state.dateRange,
     selectedExercises: [...state.selectedExercises],
+    activeWorkout: state.activeWorkout,
+    workoutStartedAt: state.workoutStartedAt,
+    workoutDraft: state.workoutDraft,
   }));
 }
 
@@ -210,7 +216,8 @@ function metric(iconName, zh, en, value, cls = "") {
 
 function home() {
   const planDays = ensurePlanDays();
-  const todayPlan = planDays[0];
+  const mondayBasedDay = (new Date().getDay() + 6) % 7;
+  const todayPlan = planDays[mondayBasedDay] || planDays[0];
   const todayExercises = (todayPlan?.exerciseIds || []).map(id => exerciseLibrary.find(item => item.id === id)).filter(Boolean);
   const completedWorkouts = state.workoutLogs.length;
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -481,10 +488,42 @@ function goalSetup() {
   </section>`;
 }
 
+const equipmentCategories = [
+  ["common", "常用", "Common"],
+  ["chest", "胸部", "Chest"],
+  ["back", "背部", "Back"],
+  ["shoulders", "肩部", "Shoulders"],
+  ["legs", "腿部", "Legs"],
+  ["free", "自由重量", "Free Weights"],
+  ["cardio", "有氧", "Cardio"],
+];
+
 const equipmentItems = [
-  ["哑铃","Dumbbells"],["杠铃","Barbell"],["卧推凳","Bench"],["跑步机","Treadmill"],
-  ["拉力器","Cable Machine"],["引体向上架","Pull-up Bar"],["壶铃","Kettlebell"],["史密斯机","Smith Machine"],
-  ["腿举机","Leg Press"],
+  { zh:"高位下拉机", en:"Lat Pulldown", key:"lat-pulldown", categories:["common","back"], aliases:"高位下拉 背阔肌 下拉" },
+  { zh:"坐姿划船机", en:"Seated Row Machine", key:"seated-row", categories:["common","back"], aliases:"划船 背部" },
+  { zh:"坐姿推胸机", en:"Chest Press Machine", key:"chest-press", categories:["common","chest"], aliases:"推胸 胸肌" },
+  { zh:"蝴蝶机", en:"Pec Deck", key:"pec-deck", categories:["common","chest"], aliases:"夹胸 飞鸟 胸肌" },
+  { zh:"肩推机", en:"Shoulder Press Machine", key:"shoulder-press", categories:["common","shoulders"], aliases:"推肩 三角肌" },
+  { zh:"腿举机", en:"Leg Press", key:"leg-press", categories:["common","legs"], aliases:"腿部 股四头 臀部" },
+  { zh:"史密斯机", en:"Smith Machine", key:"smith-machine", categories:["common","chest","legs"], aliases:"深蹲 卧推" },
+  { zh:"龙门架", en:"Cable Crossover", key:"cable", categories:["common","chest","back","shoulders"], aliases:"拉力器 绳索 飞鸟 面拉" },
+  { zh:"哑铃", en:"Dumbbells", key:"dumbbell", categories:["common","free","chest","back","shoulders","legs"], aliases:"自由重量" },
+  { zh:"杠铃", en:"Barbell", key:"barbell", categories:["common","free","chest","back","legs"], aliases:"自由重量" },
+  { zh:"可调训练凳", en:"Adjustable Bench", key:"bench", categories:["common","free","chest","shoulders"], aliases:"卧推凳 上斜凳" },
+  { zh:"引体向上架", en:"Pull-up Bar", key:"pull-up-bar", categories:["back"], aliases:"单杠 背部" },
+  { zh:"反向飞鸟机", en:"Reverse Pec Deck", key:"pec-deck", categories:["shoulders","back"], aliases:"后束 肩后束" },
+  { zh:"侧平举机", en:"Lateral Raise Machine", key:"shoulder-press", categories:["shoulders"], aliases:"三角肌中束" },
+  { zh:"腿屈伸机", en:"Leg Extension", key:"leg-extension", categories:["legs"], aliases:"股四头" },
+  { zh:"腿弯举机", en:"Leg Curl", key:"leg-curl", categories:["legs"], aliases:"腘绳肌" },
+  { zh:"哈克深蹲机", en:"Hack Squat", key:"hack-squat", categories:["legs"], aliases:"深蹲 股四头" },
+  { zh:"髋外展机", en:"Hip Abductor", key:"hip-abductor", categories:["legs"], aliases:"臀中肌 臀部" },
+  { zh:"小腿提踵机", en:"Calf Raise Machine", key:"calf-raise", categories:["legs"], aliases:"小腿" },
+  { zh:"壶铃", en:"Kettlebell", key:"kettlebell", categories:["free","legs"], aliases:"摆动 臀腿" },
+  { zh:"弹力带", en:"Resistance Bands", key:"bands", categories:["free","shoulders"], aliases:"拉伸 康复" },
+  { zh:"跑步机", en:"Treadmill", key:"treadmill", categories:["cardio"], aliases:"快走 跑步" },
+  { zh:"椭圆机", en:"Elliptical", key:"elliptical", categories:["cardio"], aliases:"有氧" },
+  { zh:"健身车", en:"Exercise Bike", key:"bike", categories:["cardio"], aliases:"单车 有氧" },
+  { zh:"划船机", en:"Rowing Machine", key:"rower", categories:["cardio","back"], aliases:"有氧 划船" },
 ];
 
 const equipmentGuides = {
@@ -498,26 +537,55 @@ const equipmentGuides = {
   "史密斯机": { en: "Smith Machine", motion: "squat", muscles: ["股四头肌", "臀肌"], steps: ["确认安全挂钩与限位器位置", "双脚根据动作放在合适位置", "旋转杠铃解锁并控制下放"], mistakes: ["忘记设置限位器", "膝盖内扣", "杠铃未完全挂回"] },
 };
 
+for (const item of equipmentItems) {
+  if (!equipmentGuides[item.zh]) {
+    const muscles = item.categories.filter(category => ["chest","back","shoulders","legs"].includes(category)).map(category => ({
+      chest:"胸部", back:"背部", shoulders:"肩部", legs:"腿部",
+    })[category]);
+    equipmentGuides[item.zh] = {
+      en: item.en,
+      motion: item.key === "treadmill" ? "treadmill" : item.categories.includes("legs") ? "squat" : item.categories.includes("chest") ? "press" : "pull",
+      muscles: muscles.length ? muscles : ["全身"],
+      steps: ["根据身高调整座椅、靠垫或滑轮位置", "从轻重量开始，确认关节与器械轴线对齐", "保持动作稳定并控制回程"],
+      mistakes: ["座椅或限位未调整", "起始重量过大", "依赖惯性完成动作"],
+    };
+  }
+}
+
 function equipment() {
   const standalone = state.route === "equipment";
   const allItems = [
-    ...equipmentItems.map(x => [...x, ""]),
-    ...state.customEquipment.map(x => [
-      x.name,
-      x.en || "Custom",
-      `${weightTypeLabel(x.type)} · ${x.increment} ${x.unit}`,
-    ]),
+    ...equipmentItems.map(item => ({ ...item, detail:"", custom:false })),
+    ...state.customEquipment.map(item => ({
+      zh:item.name,
+      en:item.en || "Custom",
+      key:item.equipmentKey || inferEquipmentKey(item.name, item.en),
+      categories:["common"],
+      aliases:`${item.name} ${item.en || ""}`,
+      detail:`${weightTypeLabel(item.type)} · ${item.increment} ${item.unit}`,
+      custom:true,
+    })),
   ];
+  const isVisible = item => state.equipmentCategory === "common"
+    ? item.categories.includes("common")
+    : item.categories.includes(state.equipmentCategory);
   return `<section class="screen setup-screen">${setupTop("器械设置","Equipment Setup",3)}
     <section class="equipment-status">${icon("check")}<div><b>${text("已选择","Selected")} <strong>${state.equipment.size}</strong></b><small>${text("训练动作将自动适配现有器械","Exercises adapt to available equipment")}</small></div></section>
     <label class="search-box">${icon("search")}<input id="equipment-search" placeholder="${text("搜索器械","Search equipment")}"></label>
-    <div class="equipment-list">${allItems.map(x => `<div class="equipment-item ${state.equipment.has(x[0])?"active":""}" data-equipment-row="${x[0]}">
-      <button class="equipment-select" data-equipment="${x[0]}">${icon("dumbbell")}<span>${dual(x[0],x[1],"b")}${x[2] ? `<em>${x[2]}</em>` : ""}</span><i>${state.equipment.has(x[0])?icon("check"):""}</i></button>
-      <button class="guide-btn" data-equipment-guide="${x[0]}">${text("怎么用","Guide")} ${icon("arrow")}</button>
+    <div class="equipment-categories">${equipmentCategories.map(([key,zh,en]) => `<button data-equipment-category="${key}" class="${state.equipmentCategory === key ? "active" : ""}">${text(zh,en)}</button>`).join("")}</div>
+    <div class="equipment-list" data-equipment-list>${allItems.map(item => `<div class="equipment-item ${state.equipment.has(item.zh)?"active":""}" ${isVisible(item) ? "" : "hidden"} data-equipment-row="${item.zh}" data-equipment-categories="${item.categories.join(" ")}" data-equipment-search="${escapeHtml(`${item.zh} ${item.en} ${item.aliases}`.toLowerCase())}">
+      <button class="equipment-select" data-equipment="${item.zh}">${icon(equipmentIcon(item.key))}<span>${dual(item.zh,item.en,"b")}${item.detail ? `<em>${item.detail}</em>` : ""}</span><i>${state.equipment.has(item.zh)?icon("check"):""}</i></button>
+      <button class="guide-btn" data-equipment-guide="${item.zh}">${text("怎么用","Guide")} ${icon("arrow")}</button>
     </div>`).join("")}</div>
     <button class="add-custom" data-custom-equipment>${icon("camera")}<span>${dual("拍照添加自定义器械","Scan Custom Equipment","b")}<em>${text("识别器械类型与配重方式","Detect equipment and weight system")}</em></span>${icon("arrow")}</button>
     <button class="primary-btn" data-finish="${standalone}">${text(standalone?"保存设置":"下一步",standalone?"Save":"Next")} ${icon("arrow")}</button>
   </section>`;
+}
+
+function equipmentIcon(key) {
+  if (["treadmill","elliptical","bike","rower"].includes(key)) return "activity";
+  if (["cable","lat-pulldown","seated-row","chest-press","pec-deck","shoulder-press","leg-press","leg-extension","leg-curl","hack-squat","hip-abductor","calf-raise","smith-machine"].includes(key)) return "sliders";
+  return "dumbbell";
 }
 
 function equipmentSheet() {
@@ -670,13 +738,30 @@ const equipmentKeyMap = {
   "哑铃": "dumbbell",
   "杠铃": "barbell",
   "卧推凳": "bench",
+  "可调训练凳": "bench",
   "跑步机": "treadmill",
   "拉力器": "cable",
+  "龙门架": "cable",
+  "高位下拉机": "lat-pulldown",
+  "坐姿划船机": "seated-row",
+  "坐姿推胸机": "chest-press",
+  "蝴蝶机": "pec-deck",
+  "反向飞鸟机": "pec-deck",
+  "肩推机": "shoulder-press",
+  "侧平举机": "shoulder-press",
   "弹力带": "bands",
   "引体向上架": "pull-up-bar",
   "壶铃": "kettlebell",
   "史密斯机": "smith-machine",
   "腿举机": "leg-press",
+  "腿屈伸机": "leg-extension",
+  "腿弯举机": "leg-curl",
+  "哈克深蹲机": "hack-squat",
+  "髋外展机": "hip-abductor",
+  "小腿提踵机": "calf-raise",
+  "椭圆机": "elliptical",
+  "健身车": "bike",
+  "划船机": "rower",
 };
 
 function availableEquipmentKeys() {
@@ -694,8 +779,18 @@ function inferEquipmentKey(...values) {
   const source = values.filter(Boolean).join(" ").toLowerCase();
   const rules = [
     ["smith-machine", ["史密斯", "smith"]],
+    ["lat-pulldown", ["高位下拉", "lat pulldown"]],
+    ["seated-row", ["坐姿划船", "seated row"]],
     ["pull-up-bar", ["引体", "pull-up", "pull up"]],
     ["leg-press", ["腿举", "leg press"]],
+    ["leg-extension", ["腿屈伸", "leg extension"]],
+    ["leg-curl", ["腿弯举", "leg curl"]],
+    ["hack-squat", ["哈克", "hack squat"]],
+    ["hip-abductor", ["髋外展", "hip abductor"]],
+    ["calf-raise", ["提踵", "calf raise"]],
+    ["chest-press", ["推胸", "chest press"]],
+    ["pec-deck", ["蝴蝶", "夹胸", "pec deck", "reverse pec"]],
+    ["shoulder-press", ["肩推", "侧平举机", "shoulder press", "lateral raise machine"]],
     ["treadmill", ["跑步", "treadmill"]],
     ["kettlebell", ["壶铃", "kettlebell"]],
     ["dumbbell", ["哑铃", "dumbbell"]],
@@ -703,6 +798,9 @@ function inferEquipmentKey(...values) {
     ["bench", ["卧推凳", "训练凳", "bench"]],
     ["cable", ["拉力器", "绳索", "龙门架", "cable", "pulldown"]],
     ["bands", ["弹力带", "resistance band"]],
+    ["elliptical", ["椭圆机", "elliptical"]],
+    ["bike", ["健身车", "单车", "exercise bike"]],
+    ["rower", ["划船机", "rowing machine"]],
     ["bodyweight", ["自重", "bodyweight"]],
   ];
   return rules.find(([, words]) => words.some(word => source.includes(word)))?.[0] || "other";
@@ -791,9 +889,49 @@ function exerciseCard(item) {
   </article>`;
 }
 
+function defaultSetCount(item) {
+  return Math.max(1, Number(String(item.sets || "").match(/\d+/)?.[0]) || 3);
+}
+
+function defaultRepCount(item) {
+  const numbers = String(item.sets || "").match(/\d+/g) || [];
+  return Number(numbers[1]) || 10;
+}
+
+function ensureWorkoutDraft(items) {
+  for (const item of items) {
+    if (!state.workoutDraft[item.id]) {
+      state.workoutDraft[item.id] = {
+        unit: state.units === "metric" ? "kg" : "lb",
+        sets: Array.from({ length: defaultSetCount(item) }, () => ({
+          reps: defaultRepCount(item),
+          weight: 0,
+          completed: false,
+        })),
+      };
+    }
+  }
+  persist();
+}
+
+function elapsedWorkoutSeconds() {
+  if (!state.workoutStartedAt) return 0;
+  return Math.max(0, Math.floor((Date.now() - new Date(state.workoutStartedAt).getTime()) / 1000));
+}
+
+function formatDuration(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor(totalSeconds % 3600 / 60);
+  const seconds = totalSeconds % 60;
+  return hours
+    ? `${String(hours).padStart(2,"0")}:${String(minutes).padStart(2,"0")}:${String(seconds).padStart(2,"0")}`
+    : `${String(minutes).padStart(2,"0")}:${String(seconds).padStart(2,"0")}`;
+}
+
 function equipmentLabel(key) {
   const labels = {
     dumbbell: ["哑铃", "Dumbbell"], barbell: ["杠铃", "Barbell"], cable: ["拉力器", "Cable"],
+    "lat-pulldown": ["高位下拉机", "Lat Pulldown"], "seated-row": ["坐姿划船机", "Seated Row"],
     bodyweight: ["自重", "Bodyweight"], treadmill: ["跑步机", "Treadmill"],
     kettlebell: ["壶铃", "Kettlebell"], "smith-machine": ["史密斯机", "Smith Machine"],
     "pull-up-bar": ["引体向上架", "Pull-up Bar"], "leg-press": ["腿举机", "Leg Press"]
@@ -834,17 +972,37 @@ function exerciseDetailSheet() {
 
 function workoutV2() {
   const chosen = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+  ensureWorkoutDraft(chosen);
+  const completedSets = chosen.reduce((total, item) => total + (state.workoutDraft[item.id]?.sets || []).filter(set => set.completed).length, 0);
+  const totalSets = chosen.reduce((total, item) => total + (state.workoutDraft[item.id]?.sets || []).length, 0);
   return `<section class="screen workout-screen">${innerTop("训练详情","Workout Detail")}
-    <article class="detail-hero"><img src="${assets.workoutBanner}" alt=""><div class="photo-shade"></div><div>${dual("自定义力量训练","Custom Strength","h1")}<span>${text(`${chosen.length} 个动作 · 已适配器械`, `${chosen.length} EXERCISES · EQUIPMENT ADAPTED`)}</span></div></article>
+    <article class="detail-hero"><img src="${chosen[0]?.image || assets.workoutBanner}" alt=""><div class="photo-shade"></div><div>${dual("自定义力量训练","Custom Strength","h1")}<span>${text(`${chosen.length} 个动作 · 已适配器械`, `${chosen.length} EXERCISES · EQUIPMENT ADAPTED`)}</span></div></article>
+    <section class="workout-session-bar ${state.activeWorkout ? "active" : ""}">
+      <div><small>${text(state.activeWorkout ? "训练计时" : "准备开始", state.activeWorkout ? "WORKOUT TIMER" : "READY")}</small><strong data-workout-timer>${formatDuration(elapsedWorkoutSeconds())}</strong></div>
+      <div><small>${text("完成组数", "SETS DONE")}</small><strong data-set-progress>${completedSets}/${totalSets}</strong></div>
+      <button data-toggle-workout-timer>${icon(state.activeWorkout ? "check" : "play")} ${text(state.activeWorkout ? "结束训练" : "开始计时", state.activeWorkout ? "Finish" : "Start")}</button>
+    </section>
     <div class="workout-toolbar"><button data-route="exercise-library">${icon("library")}<span>${dual("选择动作","Choose Exercises","b")}</span>${icon("arrow")}</button><button data-generate-from-equipment>${icon("refresh")}<span>${dual("按器械重排","Adapt to Equipment","b")}</span>${icon("arrow")}</button></div>
     <section class="detail-metrics">${metric("clock","训练时长","Duration",`${Math.max(25, chosen.length * 8)} min`)}${metric("flame","预计消耗","Est. Calories",String(chosen.length * 75))}${metric("activity","动作数量","Exercises",String(chosen.length))}</section>
     <section class="exercise-list">${sectionTitle("训练动作","Exercises",`<span>${state.completedExercises.size}/${chosen.length}</span>`)}
-      ${chosen.map((item, i) => `<div class="exercise ${state.completedExercises.has(item.id) ? "done" : ""}">
-        <button class="exercise-check" data-complete-exercise="${item.id}"><span class="exercise-index">${state.completedExercises.has(item.id) ? icon("check") : i + 1}</span></button>
-        <button class="exercise-open" data-exercise-detail="${item.id}"><img src="${item.image}" alt="${item.en}"><span class="exercise-name">${dual(item.zh,item.en,"b")}<em>${item.sets}</em></span><span class="rest">${text("休息","REST")}<b>${item.rest}</b></span>${icon("arrow")}</button>
+      ${chosen.map((item, i) => `<div class="exercise workout-exercise ${state.completedExercises.has(item.id) ? "done" : ""}" data-workout-exercise="${item.id}">
+        <div class="exercise-summary">
+          <button class="exercise-check" data-complete-exercise="${item.id}"><span class="exercise-index">${state.completedExercises.has(item.id) ? icon("check") : i + 1}</span></button>
+          <button class="exercise-open" data-exercise-detail="${item.id}"><img src="${item.image}" alt="${item.en}"><span class="exercise-name">${dual(item.zh,item.en,"b")}<em>${item.sets}</em></span><span class="rest">${text("休息","REST")}<b>${item.rest}</b></span>${icon("arrow")}</button>
+        </div>
+        <div class="set-table">
+          <div class="set-row set-head"><span>${text("组","Set")}</span><span>${text("重量","Load")}</span><span>${text("次数","Reps")}</span><span>${text("完成","Done")}</span></div>
+          ${(state.workoutDraft[item.id]?.sets || []).map((set, setIndex) => `<div class="set-row ${set.completed ? "complete" : ""}">
+            <span>${setIndex + 1}</span>
+            <label><input type="number" min="0" step="${state.units === "metric" ? 0.5 : 1}" value="${set.weight}" data-set-weight="${item.id}" data-set-index="${setIndex}"><em>${state.workoutDraft[item.id].unit}</em></label>
+            <input type="number" min="1" max="100" value="${set.reps}" data-set-reps="${item.id}" data-set-index="${setIndex}">
+            <button data-complete-set="${item.id}" data-set-index="${setIndex}" class="${set.completed ? "active" : ""}">${set.completed ? icon("check") : ""}</button>
+          </div>`).join("")}
+          <button class="add-set" data-add-set="${item.id}">${icon("plus")} ${text("添加一组", "Add Set")}</button>
+        </div>
       </div>`).join("") || `<div class="empty-state">${icon("library")}<b>${text("还没有选择动作","No exercises selected")}</b><button data-route="exercise-library">${text("打开动作库","Open Library")}</button></div>`}
     </section>
-    <div class="sticky-actions"><button class="secondary-btn" data-route="exercise-library">${icon("plus")} ${text("编辑动作","Edit")}</button><button class="primary-btn" data-start-workout>${icon(state.activeWorkout?"check":"play")} ${text(state.activeWorkout?"结束并保存":"开始训练",state.activeWorkout?"Finish & Save":"Start Workout")}</button></div>
+    <div class="sticky-actions"><button class="secondary-btn" data-route="exercise-library">${icon("plus")} ${text("编辑动作","Edit")}</button><button class="primary-btn" data-toggle-workout-timer>${icon(state.activeWorkout?"check":"play")} ${text(state.activeWorkout?"结束并保存":"开始训练",state.activeWorkout?"Finish & Save":"Start Workout")}</button></div>
   </section>`;
 }
 
@@ -959,14 +1117,20 @@ function render() {
 
 function navigate(route) {
   if (route === state.route) return;
-  state.routeStack.push(state.route);
+  const rootRoutes = new Set(["home", "plan", "log", "progress", "profile"]);
+  if (rootRoutes.has(route)) {
+    state.routeStack = [];
+  } else if (state.routeStack.at(-1) !== state.route) {
+    state.routeStack.push(state.route);
+  }
   state.route = route;
   transitionRender();
 }
 
 function goBack(fallback = "home") {
-  const previous = state.routeStack.pop();
-  state.route = previous && previous !== state.route ? previous : fallback;
+  let previous = state.routeStack.pop();
+  while (previous === state.route) previous = state.routeStack.pop();
+  state.route = previous || fallback;
   transitionRender();
 }
 
@@ -1090,7 +1254,14 @@ function bind() {
     day.duration = Math.max(10, Math.min(180, Number(document.querySelector("[data-plan-day-duration]")?.value) || state.duration));
     state.selectedExercises = new Set(state.planDays.flatMap(item => item.exerciseIds));
     persist();
-    if (state.user) await saveCurrentPlanCloud();
+    if (state.user) {
+      try {
+        await saveCurrentPlanCloud();
+      } catch (error) {
+        toast(error.message);
+        return;
+      }
+    }
     state.sheet = null;
     state.editingPlanDay = null;
     render();
@@ -1134,6 +1305,10 @@ function bind() {
     if (marker) marker.innerHTML = state.equipment.has(item) ? icon("check") : "";
     const statusNumber = document.querySelector(".equipment-status strong");
     if (statusNumber) animateNumber(statusNumber, state.equipment.size);
+  }));
+  document.querySelectorAll("[data-equipment-category]").forEach(button => button.addEventListener("click", () => {
+    state.equipmentCategory = button.dataset.equipmentCategory;
+    render();
   }));
   document.querySelectorAll("[data-equipment-guide]").forEach(el => el.addEventListener("click", () => {
     const name = el.dataset.equipmentGuide;
@@ -1248,20 +1423,6 @@ function bind() {
       toast(text(`${name} 已添加`, `${name} added`));
     });
   });
-  document.querySelector("[data-start-workout]")?.addEventListener("click", () => {
-    const wasActive = state.activeWorkout;
-    state.activeWorkout = !state.activeWorkout;
-    const button = document.querySelector("[data-start-workout]");
-    button.innerHTML = `${icon(state.activeWorkout ? "check" : "play")} ${text(state.activeWorkout ? "训练中" : "开始训练", state.activeWorkout ? "In Progress" : "Start Workout")}`;
-    button.animate([
-      { transform: "scale(.97)", filter: "brightness(1.2)" },
-      { transform: "scale(1)", filter: "brightness(1)" },
-    ], { duration: 360, easing: "cubic-bezier(.22,1,.36,1)" });
-    toast(text(state.activeWorkout ? "训练计时已开始" : "训练已完成", state.activeWorkout ? "Workout timer started" : "Workout completed"));
-    if (wasActive && state.user) {
-      saveWorkoutCloud().then(() => toast(text("训练记录已保存到云端", "Workout saved to cloud"))).catch(error => toast(error.message));
-    }
-  });
   document.querySelector("[data-save-food]")?.addEventListener("click", async () => {
     if (!state.ingredients.length) return toast(text("请先拍照识别食物", "Scan a meal first"));
     persist();
@@ -1308,8 +1469,14 @@ function bind() {
   }));
   document.querySelector("#equipment-search")?.addEventListener("input", e => {
     const query = e.target.value.trim().toLowerCase();
+    if (query) {
+      document.querySelectorAll("[data-equipment-category]").forEach(button => button.classList.remove("active"));
+    } else {
+      document.querySelector(`[data-equipment-category="${state.equipmentCategory}"]`)?.classList.add("active");
+    }
     document.querySelectorAll(".equipment-item").forEach(row => {
-      row.hidden = !row.textContent.toLowerCase().includes(query);
+      const categoryMatch = row.dataset.equipmentCategories.split(" ").includes(state.equipmentCategory);
+      row.hidden = query ? !row.dataset.equipmentSearch.includes(query) : !categoryMatch;
     });
   });
   document.querySelectorAll("[data-guide-tab]").forEach(button => button.addEventListener("click", () => {
@@ -1364,17 +1531,43 @@ function bindAdvanced() {
     refreshExerciseCatalogUI();
   });
   bindExerciseCatalogInteractions();
+  document.querySelectorAll("[data-set-weight], [data-set-reps]").forEach(input => input.addEventListener("change", () => {
+    const id = input.dataset.setWeight || input.dataset.setReps;
+    const set = state.workoutDraft[id]?.sets?.[Number(input.dataset.setIndex)];
+    if (!set) return;
+    if (input.dataset.setWeight) set.weight = Math.max(0, Number(input.value) || 0);
+    else set.reps = Math.max(1, Number(input.value) || 1);
+    persist();
+  }));
+  document.querySelectorAll("[data-complete-set]").forEach(button => button.addEventListener("click", () => {
+    const id = button.dataset.completeSet;
+    const sets = state.workoutDraft[id]?.sets || [];
+    const set = sets[Number(button.dataset.setIndex)];
+    if (!set) return;
+    set.completed = !set.completed;
+    const exerciseComplete = sets.length > 0 && sets.every(item => item.completed);
+    exerciseComplete ? state.completedExercises.add(id) : state.completedExercises.delete(id);
+    persist();
+    render();
+  }));
+  document.querySelectorAll("[data-add-set]").forEach(button => button.addEventListener("click", () => {
+    const id = button.dataset.addSet;
+    const sets = state.workoutDraft[id]?.sets;
+    if (!sets) return;
+    const previous = sets.at(-1) || { weight: 0, reps: 10 };
+    sets.push({ weight: previous.weight, reps: previous.reps, completed: false });
+    persist();
+    render();
+  }));
+  document.querySelectorAll("[data-toggle-workout-timer]").forEach(button => button.addEventListener("click", toggleWorkoutSession));
   document.querySelectorAll("[data-complete-exercise]").forEach(button => button.addEventListener("click", () => {
     const id = button.dataset.completeExercise;
-    state.completedExercises.has(id) ? state.completedExercises.delete(id) : state.completedExercises.add(id);
-    const row = button.closest(".exercise");
-    const selected = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
-    row?.classList.toggle("done", state.completedExercises.has(id));
-    const index = row ? [...row.parentElement.querySelectorAll(".exercise")].indexOf(row) + 1 : 1;
-    const badge = button.querySelector(".exercise-index");
-    if (badge) badge.innerHTML = state.completedExercises.has(id) ? icon("check") : String(index);
-    const count = document.querySelector(".exercise-list .section-title > span");
-    if (count) animateNumber(count, `${state.completedExercises.size}/${selected.length}`);
+    const shouldComplete = !state.completedExercises.has(id);
+    const sets = state.workoutDraft[id]?.sets || [];
+    sets.forEach(set => { set.completed = shouldComplete; });
+    shouldComplete ? state.completedExercises.add(id) : state.completedExercises.delete(id);
+    persist();
+    render();
   }));
   document.querySelectorAll("[data-generate-from-equipment]").forEach(button => button.addEventListener("click", () => {
     const available = availableEquipmentKeys();
@@ -1404,7 +1597,8 @@ function bindAdvanced() {
         return;
       }
     }
-    navigate("workout");
+    navigate("plan");
+    toast(text("计划已保存", "Plan saved"));
   });
   document.querySelectorAll("[data-open-auth]").forEach(button => button.addEventListener("click", () => {
     state.authMode = button.dataset.openAuth;
@@ -1419,6 +1613,7 @@ function bindAdvanced() {
   });
   document.querySelector("#auth-form")?.addEventListener("submit", handleAuth);
   document.querySelector("[data-logout]")?.addEventListener("click", logoutCloud);
+  startWorkoutTicker();
 }
 
 function bindExerciseCatalogInteractions(root = document) {
@@ -1545,8 +1740,11 @@ function clearAccountState() {
   state.foodImage = null;
   state.foodAnalysis = null;
   state.completedExercises = new Set();
+  state.activeWorkout = false;
+  state.workoutStartedAt = null;
+  state.workoutDraft = {};
   state.route = "home";
-  state.routeStack = ["home"];
+  state.routeStack = [];
 }
 
 function applyCloudUser(user) {
@@ -1625,7 +1823,7 @@ async function saveEquipmentCloud() {
         const custom = state.customEquipment.find(item => item.name === name);
         return custom
           ? { ...custom, nameZh: name, nameEn: custom.en, key: custom.equipmentKey || "", custom: true }
-          : { nameZh: name, nameEn: equipmentItems.find(item => item[0] === name)?.[1] || name, key: equipmentKeyMap[name] || "", custom: false };
+          : { nameZh: name, nameEn: equipmentItems.find(item => item.zh === name)?.en || name, key: equipmentKeyMap[name] || "", custom: false };
       })
     }
   });
@@ -1634,28 +1832,72 @@ async function saveEquipmentCloud() {
 async function saveWorkoutCloud() {
   if (!state.user) return;
   const selected = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
-  const startedAt = new Date(Date.now() - selected.length * 8 * 60000).toISOString();
+  const startedAt = state.workoutStartedAt || new Date().toISOString();
   const completedAt = new Date().toISOString();
-  const calories = selected.length * 75;
+  const durationMinutes = Math.max(1, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000));
+  const calories = Math.max(1, Math.round(durationMinutes * 6));
+  const exercises = selected.map(item => {
+    const sets = state.workoutDraft[item.id]?.sets || [];
+    return { id: item.id, completed: sets.length > 0 && sets.every(set => set.completed), sets };
+  });
   const result = await api("/api/workouts", {
     method: "POST",
     body: {
       planId: state.planId,
       startedAt,
       completedAt,
-      durationMinutes: selected.length * 8,
+      durationMinutes,
       calories,
-      exercises: selected.map(item => ({ id: item.id, completed: state.completedExercises.has(item.id), sets: item.sets }))
+      exercises
     }
   });
   state.workoutLogs.unshift({
     id: result.id,
     started_at: startedAt,
     completed_at: completedAt,
-    duration_minutes: selected.length * 8,
+    duration_minutes: durationMinutes,
     calories,
-    exercises: selected.map(item => ({ id: item.id, completed: state.completedExercises.has(item.id), sets: item.sets })),
+    exercises,
   });
+}
+
+let workoutTimerInterval = null;
+
+function startWorkoutTicker() {
+  clearInterval(workoutTimerInterval);
+  if (!state.activeWorkout) return;
+  workoutTimerInterval = setInterval(() => {
+    const timer = document.querySelector("[data-workout-timer]");
+    if (timer) timer.textContent = formatDuration(elapsedWorkoutSeconds());
+  }, 1000);
+}
+
+async function toggleWorkoutSession() {
+  const selected = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+  if (!selected.length) return toast(text("请先选择训练动作", "Choose exercises first"));
+  if (!state.activeWorkout) {
+    ensureWorkoutDraft(selected);
+    state.completedExercises = new Set();
+    Object.values(state.workoutDraft).forEach(draft => draft.sets?.forEach(set => { set.completed = false; }));
+    state.activeWorkout = true;
+    state.workoutStartedAt = new Date().toISOString();
+    persist();
+    render();
+    toast(text("训练计时已开始", "Workout timer started"));
+    return;
+  }
+  try {
+    await saveWorkoutCloud();
+    state.activeWorkout = false;
+    state.workoutStartedAt = null;
+    state.workoutDraft = {};
+    state.completedExercises = new Set();
+    persist();
+    navigate("progress");
+    toast(text("训练已保存", "Workout saved"));
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 async function api(url, options = {}) {
@@ -1678,14 +1920,21 @@ function bindRoutesAndToasts(root = document) {
 
 function bindPlanStart(root = document) {
   root.querySelectorAll("[data-start-plan]").forEach(button => button.addEventListener("click", async () => {
-    state.planStarted = !state.planStarted;
+    const previous = state.planStarted;
+    state.planStarted = !previous;
     persist();
     button.innerHTML = `${icon(state.planStarted ? "check" : "play")} ${text(state.planStarted ? "计划进行中" : "开始计划", state.planStarted ? "Plan In Progress" : "Start Plan")}`;
     if (state.user) {
       try { await saveCurrentPlanCloud(); }
-      catch (error) { toast(error.message); }
+      catch (error) {
+        state.planStarted = previous;
+        persist();
+        render();
+        return toast(error.message);
+      }
     }
     toast(text(state.planStarted ? "计划已开始并保存到本机" : "计划已暂停", state.planStarted ? "Plan started and saved locally" : "Plan paused"));
+    if (state.planStarted) navigate("home");
   }));
 }
 
