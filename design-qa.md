@@ -1,21 +1,24 @@
-**Design QA**
+# FitPlan AI Training Screen Design QA
 
-- source visual truth path: The action-library reference images previously supplied from WeChat temporary storage are no longer present on disk.
-- implementation screenshot path: unavailable; the in-app browser loaded and passed DOM/console checks, but screenshot capture timed out.
-- viewport: mobile, 390 x 844 during implementation checks
-- state: authenticated user with selected equipment, generated exercises, and editable plan
-- full-view comparison evidence: blocked because the original action-library source file and a saved current capture were unavailable.
-- focused region comparison evidence: not performed for the same blocker.
+Reference: `codex-clipboard-c5311a53-c995-4bdb-b969-491c6ee20470.png`
 
-**Findings**
-- No P0 functional layout issue was found during interactive browser checks.
-- Visual pixel-level comparison against the supplied action-library reference remains blocked.
+Implementation capture: `qa-workout-focused-500.png`
 
-**Patches Made**
-- Added a restrained single-column exercise library with clearer filtering and selection hierarchy.
-- Added login-only access, account-isolated empty states, route-stack navigation, editable profile/body data, local custom avatars, equipment-aware plan generation, editable daily plans, custom progress date ranges, and single-language rendering.
-- Removed default demo records from new accounts and replaced them with empty states driven by account data.
+Combined comparison: `qa-workout-comparison.png`
 
-**Final Result**
+## Review
 
-final result: blocked
+- P0: none.
+- P1: none.
+- P2: none.
+- The white-background line drawing has been replaced with a readable, full-bleed human exercise photograph.
+- The current exercise is now the primary visual and information hierarchy.
+- Set weight, reps, previous performance and confirmation controls are visible without opening every exercise.
+- Touch targets, spacing and contrast remain consistent with the existing dark FitPlan AI system.
+- The layout stays within the mobile app frame with no incoherent overlap.
+
+## Remaining P3
+
+- Additional exercise-specific photographs can be generated later to reduce category-level image reuse.
+
+final result: passed

@@ -43,6 +43,10 @@ const state = {
   activeWorkout: Boolean(saved.activeWorkout),
   workoutStartedAt: saved.workoutStartedAt || null,
   workoutDraft: saved.workoutDraft || {},
+  currentExerciseId: saved.currentExerciseId || null,
+  restUntil: saved.restUntil || null,
+  restDuration: saved.restDuration || 20,
+  pendingSet: null,
   planStarted: saved.planStarted || false,
   planId: saved.planId || null,
   planDays: Array.isArray(saved.planDays) ? saved.planDays : [],
@@ -79,6 +83,20 @@ const state = {
   cloudReady: false,
   ingredients: saved.ingredients || [],
 };
+
+const localPreview = ["127.0.0.1", "localhost"].includes(location.hostname) && debugParams.get("preview") === "1";
+if (localPreview) {
+  state.cloudReady = true;
+  state.user = { id: "preview", name: "Larry", email: "preview@fitplan.local" };
+  state.selectedExercises = new Set(["pull-up", "seated-row", "machine-chest-press"]);
+  state.currentExerciseId = "pull-up";
+  state.workoutLogs = [{
+    exercises: [
+      { id: "pull-up", sets: [{ weight: 0, reps: 8 }, { weight: 0, reps: 7 }, { weight: 0, reps: 6 }] },
+      { id: "seated-row", sets: [{ weight: 45, reps: 12 }, { weight: 45, reps: 11 }] },
+    ],
+  }];
+}
 
 const app = document.querySelector("#app");
 
@@ -143,6 +161,9 @@ function persist() {
     activeWorkout: state.activeWorkout,
     workoutStartedAt: state.workoutStartedAt,
     workoutDraft: state.workoutDraft,
+    currentExerciseId: state.currentExerciseId,
+    restUntil: state.restUntil,
+    restDuration: state.restDuration,
   }));
 }
 
@@ -864,7 +885,7 @@ function exerciseLibraryScreen() {
 
 function selectedExerciseStrip(items) {
   if (!items.length) return `<span class="selection-empty">${text("还没有选择动作", "No exercises selected yet")}</span>`;
-  return items.slice(0, 5).map(item => `<button data-exercise-detail="${item.id}"><img src="${item.image}" alt=""><span>${text(item.zh, item.en)}</span></button>`).join("") +
+  return items.slice(0, 5).map(item => `<button data-exercise-detail="${item.id}"><img src="${exerciseCover(item)}" alt=""><span>${text(item.zh, item.en)}</span></button>`).join("") +
     (items.length > 5 ? `<span class="selection-more">+${items.length - 5}</span>` : "");
 }
 
@@ -873,7 +894,7 @@ function exerciseCard(item) {
   const available = availableEquipmentKeys().has(item.equipment);
   return `<article class="catalog-card ${selected ? "selected" : ""}">
     <button class="catalog-preview" data-exercise-detail="${item.id}">
-      <img src="${item.image}" alt="${item.en}">
+      <img src="${exerciseCover(item)}" alt="${item.en}">
       <span class="media-badge">${icon("play")} ${text("讲解", "Guide")}</span>
     </button>
     <div class="catalog-copy">
@@ -898,20 +919,63 @@ function defaultRepCount(item) {
   return Number(numbers[1]) || 10;
 }
 
+function lastExerciseSets(id) {
+  for (const log of state.workoutLogs) {
+    const exercise = (log.exercises || []).find(item => item.id === id);
+    if (exercise?.sets?.length) return exercise.sets;
+  }
+  return [];
+}
+
 function ensureWorkoutDraft(items) {
   for (const item of items) {
     if (!state.workoutDraft[item.id]) {
+      const previousSets = lastExerciseSets(item.id);
       state.workoutDraft[item.id] = {
         unit: state.units === "metric" ? "kg" : "lb",
         sets: Array.from({ length: defaultSetCount(item) }, () => ({
-          reps: defaultRepCount(item),
-          weight: 0,
+          reps: previousSets[0]?.reps || defaultRepCount(item),
+          weight: previousSets[0]?.weight || 0,
           completed: false,
         })),
       };
     }
   }
   persist();
+}
+
+function exerciseCover(item) {
+  const covers = {
+    "pull-up": "assets/exercise-pullup-real.png",
+    "lat-pulldown": "assets/exercise-pullup-real.png",
+    "seated-row": "assets/exercise-row-real.png",
+    "machine-chest-press": "assets/exercise-chestpress-real.png",
+    "pec-deck-fly": "assets/exercise-chestpress-real.png",
+    "hack-squat": "assets/exercise-hacksquat-real.png",
+    "smith-squat": "assets/exercise-hacksquat-real.png",
+    "leg-press": "assets/exercise-hacksquat-real.png",
+  };
+  if (covers[item.id]) return covers[item.id];
+  if (item.muscle === "back") return "assets/exercise-row-real.png";
+  if (item.muscle === "chest" || item.muscle === "shoulders") return "assets/exercise-chestpress-real.png";
+  if (item.muscle === "legs" || item.muscle === "glutes") return "assets/exercise-hacksquat-real.png";
+  return item.image?.startsWith("assets/") ? item.image : assets.workoutBanner;
+}
+
+function remainingRestSeconds() {
+  if (!state.restUntil) return 0;
+  return Math.max(0, Math.ceil((new Date(state.restUntil).getTime() - Date.now()) / 1000));
+}
+
+function nextIncompleteExercise(chosen, currentId) {
+  const currentIndex = Math.max(0, chosen.findIndex(item => item.id === currentId));
+  return [...chosen.slice(currentIndex + 1), ...chosen.slice(0, currentIndex + 1)]
+    .find(item => (state.workoutDraft[item.id]?.sets || []).some(set => !set.completed));
+}
+
+function workoutVolume() {
+  return Object.values(state.workoutDraft).reduce((total, draft) =>
+    total + (draft.sets || []).filter(set => set.completed).reduce((sum, set) => sum + Number(set.weight || 0) * Number(set.reps || 0), 0), 0);
 }
 
 function elapsedWorkoutSeconds() {
@@ -951,14 +1015,14 @@ function exerciseDetailSheet() {
       <div class="sheet-handle"></div>
       <header class="sheet-header"><div>${dual(item.zh, item.en, "h2")}<p>${equipmentLabel(item.equipment)} · ${item.sets} · ${item.rest}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
       <div class="lesson-media">
-        <video src="${item.videoUrl}" poster="${item.image}" controls playsinline webkit-playsinline preload="metadata"></video>
+        <video src="${item.videoUrl}" poster="${exerciseCover(item)}" controls playsinline webkit-playsinline preload="metadata"></video>
         <span class="lesson-kicker">01 · ${text("动作讲解", "TECHNIQUE LESSON")}</span>
       </div>
       <div class="lesson-intro"><b>${text("真人动作示范", "Real Movement Demo")}</b><small>${text("先完整看一遍，再关注起始位、发力轨迹和回程控制。", "Watch once, then review setup, drive and the controlled return.")}</small></div>
       <section class="motion-module">
         <div class="module-number">02</div>
         <div>${dual("循环动作演示", "Looping Motion", "h3")}<p>${text("静音循环播放，训练时可快速确认动作轨迹。", "Muted loop for a quick technique check during training.")}</p></div>
-        <div class="real-motion-loop"><video src="${item.videoUrl}" poster="${item.image}" muted loop autoplay playsinline webkit-playsinline preload="metadata"></video><span>LOOP · REAL MOTION</span></div>
+        <div class="real-motion-loop"><video src="${item.videoUrl}" poster="${exerciseCover(item)}" muted loop autoplay playsinline webkit-playsinline preload="metadata"></video><span>LOOP · REAL MOTION</span></div>
       </section>
       <div class="technique-columns">
         <section><b>${text("动作步骤", "Technique")}</b><ol>${steps.map(step => `<li>${step}</li>`).join("")}</ol></section>
@@ -973,36 +1037,54 @@ function exerciseDetailSheet() {
 function workoutV2() {
   const chosen = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
   ensureWorkoutDraft(chosen);
+  if (!chosen.length) {
+    return `<section class="screen workout-screen">${innerTop("训练","Workout")}<div class="empty-state workout-empty">${icon("library")}<b>${text("还没有训练动作","No exercises selected")}</b><p>${text("先选择器械和动作，再开始训练。","Choose equipment and exercises first.")}</p><button data-route="exercise-library">${text("选择动作","Choose Exercises")}</button></div></section>`;
+  }
+  const current = chosen.find(item => item.id === state.currentExerciseId) || chosen[0];
+  state.currentExerciseId = current.id;
+  const sets = state.workoutDraft[current.id]?.sets || [];
+  const previous = lastExerciseSets(current.id);
   const completedSets = chosen.reduce((total, item) => total + (state.workoutDraft[item.id]?.sets || []).filter(set => set.completed).length, 0);
   const totalSets = chosen.reduce((total, item) => total + (state.workoutDraft[item.id]?.sets || []).length, 0);
-  return `<section class="screen workout-screen">${innerTop("训练详情","Workout Detail")}
-    <article class="detail-hero"><img src="${chosen[0]?.image || assets.workoutBanner}" alt=""><div class="photo-shade"></div><div>${dual("自定义力量训练","Custom Strength","h1")}<span>${text(`${chosen.length} 个动作 · 已适配器械`, `${chosen.length} EXERCISES · EQUIPMENT ADAPTED`)}</span></div></article>
-    <section class="workout-session-bar ${state.activeWorkout ? "active" : ""}">
-      <div><small>${text(state.activeWorkout ? "训练计时" : "准备开始", state.activeWorkout ? "WORKOUT TIMER" : "READY")}</small><strong data-workout-timer>${formatDuration(elapsedWorkoutSeconds())}</strong></div>
-      <div><small>${text("完成组数", "SETS DONE")}</small><strong data-set-progress>${completedSets}/${totalSets}</strong></div>
-      <button data-toggle-workout-timer>${icon(state.activeWorkout ? "check" : "play")} ${text(state.activeWorkout ? "结束训练" : "开始计时", state.activeWorkout ? "Finish" : "Start")}</button>
+  const currentDone = sets.filter(set => set.completed).length;
+  const restSeconds = remainingRestSeconds();
+  const volume = workoutVolume();
+  return `<section class="screen workout-screen focused-workout">${innerTop("训练中","Workout")}
+    <div class="workout-progress-line"><span style="width:${totalSets ? completedSets / totalSets * 100 : 0}%"></span></div>
+    <header class="workout-focus-header">
+      <div><small>${text(`动作 ${chosen.indexOf(current) + 1}/${chosen.length}`, `EXERCISE ${chosen.indexOf(current) + 1}/${chosen.length}`)}</small><h1>${text(current.zh,current.en)}</h1><p>${equipmentLabel(current.equipment)} · ${text(muscleLabels[current.muscle]?.[0] || current.muscle, muscleLabels[current.muscle]?.[1] || current.muscle)}</p></div>
+      <button data-open-workout-list>${completedSets}/${totalSets}<small>${text("全部进度","Progress")}</small></button>
+    </header>
+    <button class="workout-cover" data-exercise-detail="${current.id}">
+      <img src="${exerciseCover(current)}" alt="${escapeHtml(current.en)}">
+      <span class="cover-guide">${icon("play")} ${text("查看动作教学","View Technique")}</span>
+      <span class="cover-counter">${currentDone}/${sets.length} ${text("组","sets")}</span>
+    </button>
+    ${restSeconds ? `<section class="rest-card active">
+      <div class="rest-ring"><strong data-rest-timer>${restSeconds}</strong><small>SEC</small></div>
+      <div><small>${text("组间休息","REST")}</small><b>${text("恢复呼吸，准备下一组","Recover for the next set")}</b><p>${text("可以提前结束或延长休息","Skip or extend anytime")}</p></div>
+      <div class="rest-actions"><button data-skip-rest>${text("结束","End")}</button><button data-add-rest>+20s</button></div>
+    </section>` : ""}
+    <section class="current-set-panel">
+      <div class="set-panel-title"><div><small>${text("本次记录","SESSION LOG")}</small><h2>${text("重量与次数","Weight & Reps")}</h2></div><span>${text(`上次 ${previous[0]?.weight || "--"} ${state.workoutDraft[current.id].unit} × ${previous[0]?.reps || "--"}`, `Last ${previous[0]?.weight || "--"} ${state.workoutDraft[current.id].unit} × ${previous[0]?.reps || "--"}`)}</span></div>
+      <div class="focused-set-head"><span>${text("组","SET")}</span><span>${text("重量","WEIGHT")}</span><span>${text("次数","REPS")}</span><span></span></div>
+      <div class="focused-sets">${sets.map((set,index) => `<div class="focused-set ${set.completed ? "complete" : ""}">
+        <strong>${index + 1}</strong>
+        <div class="step-control"><button data-adjust-set="${current.id}" data-set-index="${index}" data-field="weight" data-delta="-2.5">−</button><input type="number" inputmode="decimal" value="${set.weight}" data-set-weight="${current.id}" data-set-index="${index}"><button data-adjust-set="${current.id}" data-set-index="${index}" data-field="weight" data-delta="2.5">+</button><small>${state.workoutDraft[current.id].unit}</small></div>
+        <div class="step-control reps"><button data-adjust-set="${current.id}" data-set-index="${index}" data-field="reps" data-delta="-1">−</button><input type="number" inputmode="numeric" value="${set.reps}" data-set-reps="${current.id}" data-set-index="${index}"><button data-adjust-set="${current.id}" data-set-index="${index}" data-field="reps" data-delta="1">+</button></div>
+        <button class="set-confirm ${set.completed ? "active" : ""}" data-complete-set="${current.id}" data-set-index="${index}">${set.completed ? icon("check") : text("确认","Log")}</button>
+      </div>`).join("")}</div>
+      <div class="set-panel-tools">
+        <button data-add-set="${current.id}">${icon("plus")} ${text("添加一组","Add Set")}</button>
+        ${["barbell","smith-machine"].includes(current.equipment) ? `<button data-plate-calculator="${current.id}">${icon("weight")} ${text("每侧配重","Plate Calculator")}</button>` : ""}
+      </div>
     </section>
-    <div class="workout-toolbar"><button data-route="exercise-library">${icon("library")}<span>${dual("选择动作","Choose Exercises","b")}</span>${icon("arrow")}</button><button data-generate-from-equipment>${icon("refresh")}<span>${dual("按器械重排","Adapt to Equipment","b")}</span>${icon("arrow")}</button></div>
-    <section class="detail-metrics">${metric("clock","训练时长","Duration",`${Math.max(25, chosen.length * 8)} min`)}${metric("flame","预计消耗","Est. Calories",String(chosen.length * 75))}${metric("activity","动作数量","Exercises",String(chosen.length))}</section>
-    <section class="exercise-list">${sectionTitle("训练动作","Exercises",`<span>${state.completedExercises.size}/${chosen.length}</span>`)}
-      ${chosen.map((item, i) => `<div class="exercise workout-exercise ${state.completedExercises.has(item.id) ? "done" : ""}" data-workout-exercise="${item.id}">
-        <div class="exercise-summary">
-          <button class="exercise-check" data-complete-exercise="${item.id}"><span class="exercise-index">${state.completedExercises.has(item.id) ? icon("check") : i + 1}</span></button>
-          <button class="exercise-open" data-exercise-detail="${item.id}"><img src="${item.image}" alt="${item.en}"><span class="exercise-name">${dual(item.zh,item.en,"b")}<em>${item.sets}</em></span><span class="rest">${text("休息","REST")}<b>${item.rest}</b></span>${icon("arrow")}</button>
-        </div>
-        <div class="set-table">
-          <div class="set-row set-head"><span>${text("组","Set")}</span><span>${text("重量","Load")}</span><span>${text("次数","Reps")}</span><span>${text("完成","Done")}</span></div>
-          ${(state.workoutDraft[item.id]?.sets || []).map((set, setIndex) => `<div class="set-row ${set.completed ? "complete" : ""}">
-            <span>${setIndex + 1}</span>
-            <label><input type="number" min="0" step="${state.units === "metric" ? 0.5 : 1}" value="${set.weight}" data-set-weight="${item.id}" data-set-index="${setIndex}"><em>${state.workoutDraft[item.id].unit}</em></label>
-            <input type="number" min="1" max="100" value="${set.reps}" data-set-reps="${item.id}" data-set-index="${setIndex}">
-            <button data-complete-set="${item.id}" data-set-index="${setIndex}" class="${set.completed ? "active" : ""}">${set.completed ? icon("check") : ""}</button>
-          </div>`).join("")}
-          <button class="add-set" data-add-set="${item.id}">${icon("plus")} ${text("添加一组", "Add Set")}</button>
-        </div>
-      </div>`).join("") || `<div class="empty-state">${icon("library")}<b>${text("还没有选择动作","No exercises selected")}</b><button data-route="exercise-library">${text("打开动作库","Open Library")}</button></div>`}
+    <section class="session-summary-strip">
+      <div><small>${text("完成组数","SETS")}</small><b>${completedSets}/${totalSets}</b></div>
+      <div><small>${text("训练容量","VOLUME")}</small><b>${Math.round(volume).toLocaleString()} ${state.workoutDraft[current.id].unit}</b></div>
+      <div><small>${text("整场时间","SESSION")}</small><b data-workout-timer>${state.activeWorkout ? formatDuration(elapsedWorkoutSeconds()) : "--:--"}</b></div>
     </section>
-    <div class="sticky-actions"><button class="secondary-btn" data-route="exercise-library">${icon("plus")} ${text("编辑动作","Edit")}</button><button class="primary-btn" data-toggle-workout-timer>${icon(state.activeWorkout?"check":"play")} ${text(state.activeWorkout?"结束并保存":"开始训练",state.activeWorkout?"Finish & Save":"Start Workout")}</button></div>
+    <div class="sticky-actions workout-sticky"><button class="secondary-btn" data-open-workout-list>${icon("library")} ${text("全部动作","All Exercises")}</button><button class="primary-btn" data-toggle-workout-timer>${icon(state.activeWorkout?"check":"play")} ${text(state.activeWorkout?"结束并保存":"开始本次训练",state.activeWorkout?"Finish & Save":"Start Session")}</button></div>
   </section>`;
 }
 
@@ -1094,10 +1176,65 @@ function planDaySheet() {
     <header class="sheet-header"><div><h2>${text("编辑", "Edit")} ${text(day.dayZh, day.dayEn)}</h2><p>${text("只显示你现有器械可完成的动作。", "Only exercises supported by your equipment are shown.")}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
     <label class="day-duration"><span>${text("训练时长", "Duration")}</span><input type="number" min="10" max="180" step="5" value="${day.duration}" data-plan-day-duration><em>min</em></label>
     <div class="plan-day-options">${choices.map(item => `<button class="${day.exerciseIds.includes(item.id) ? "active" : ""}" data-plan-day-exercise="${item.id}">
-      <img src="${item.image}" alt=""><span><b>${text(item.zh,item.en)}</b><small>${equipmentLabel(item.equipment)}</small></span><i>${day.exerciseIds.includes(item.id) ? icon("check") : ""}</i>
+      <img src="${exerciseCover(item)}" alt=""><span><b>${text(item.zh,item.en)}</b><small>${equipmentLabel(item.equipment)}</small></span><i>${day.exerciseIds.includes(item.id) ? icon("check") : ""}</i>
     </button>`).join("")}</div>
     <button class="primary-btn" data-save-plan-day>${text("保存当天计划", "Save Day")} ${icon("check")}</button>
   </section></div>`;
+}
+
+function workoutSheets() {
+  const chosen = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+  if (state.sheet === "workout-list") {
+    return `<div class="sheet-layer open" data-close-sheet><section class="bottom-sheet workout-list-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <header class="sheet-header"><div><h2>${text("全部动作","All Exercises")}</h2><p>${text("切换动作不会丢失已经填写的数据","Your logged data stays saved when switching")}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
+      <div class="workout-list-items">${chosen.map((item,index) => {
+        const sets = state.workoutDraft[item.id]?.sets || [];
+        const done = sets.filter(set => set.completed).length;
+        return `<button class="${item.id === state.currentExerciseId ? "active" : ""}" data-switch-exercise="${item.id}">
+          <img src="${exerciseCover(item)}" alt=""><span><small>${index + 1}</small><b>${text(item.zh,item.en)}</b><em>${equipmentLabel(item.equipment)}</em></span><strong>${done}/${sets.length}</strong>${icon("arrow")}
+        </button>`;
+      }).join("")}</div>
+      <button class="secondary-btn workout-edit-plan" data-route="exercise-library">${icon("edit")} ${text("调整动作或替换","Edit or Replace Exercises")}</button>
+    </section></div>`;
+  }
+  if (state.sheet === "set-confirm" && state.pendingSet) {
+    const draft = state.workoutDraft[state.pendingSet.id];
+    const set = draft?.sets?.[state.pendingSet.index];
+    const item = exerciseLibrary.find(exercise => exercise.id === state.pendingSet.id);
+    if (!set || !item) return "";
+    return `<div class="sheet-layer open" data-close-sheet><section class="bottom-sheet set-confirm-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <header class="sheet-header"><div><small>${text(`第 ${state.pendingSet.index + 1} 组`,`SET ${state.pendingSet.index + 1}`)}</small><h2>${text("确认本组记录","Confirm Set")}</h2><p>${text(item.zh,item.en)}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
+      <div class="confirm-values">
+        <label><span>${text("实际重量","Weight")}</span><div><button data-confirm-adjust="weight" data-delta="-2.5">−</button><input data-confirm-weight type="number" inputmode="decimal" value="${set.weight}"><button data-confirm-adjust="weight" data-delta="2.5">+</button></div><small>${draft.unit}</small></label>
+        <label><span>${text("实际次数","Reps")}</span><div><button data-confirm-adjust="reps" data-delta="-1">−</button><input data-confirm-reps type="number" inputmode="numeric" value="${set.reps}"><button data-confirm-adjust="reps" data-delta="1">+</button></div><small>${text("次","reps")}</small></label>
+      </div>
+      <div class="confirm-note">${icon("clock")}<span>${text(`确认后自动开始 ${state.restDuration} 秒休息，可随时跳过。`,`A ${state.restDuration}-second rest starts after confirmation and can be skipped.`)}</span></div>
+      <button class="primary-btn" data-confirm-set>${icon("check")} ${text("完成本组并休息","Log Set & Rest")}</button>
+    </section></div>`;
+  }
+  if (state.sheet === "plate-calculator") {
+    const item = exerciseLibrary.find(exercise => exercise.id === state.currentExerciseId);
+    const workingSet = state.workoutDraft[item?.id]?.sets?.find(set => !set.completed) || state.workoutDraft[item?.id]?.sets?.[0];
+    const total = Number(workingSet?.weight || 0);
+    const bar = 20;
+    const side = Math.max(0, (total - bar) / 2);
+    const plates = [20,15,10,5,2.5,1.25];
+    let remaining = side;
+    const result = [];
+    plates.forEach(plate => {
+      const count = Math.floor((remaining + .001) / plate);
+      if (count) result.push(`${plate}kg × ${count}`);
+      remaining -= count * plate;
+    });
+    return `<div class="sheet-layer open" data-close-sheet><section class="bottom-sheet plate-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div><header class="sheet-header"><div><h2>${text("杠铃每侧配重","Plate Calculator")}</h2><p>${text("默认按 20kg 杠铃杆计算","Based on a 20kg bar")}</p></div><button class="utility-btn" data-close-sheet>×</button></header>
+      <div class="plate-total"><small>${text("目标总重量","TOTAL WEIGHT")}</small><strong>${total} kg</strong><span>${text("每侧","EACH SIDE")} ${side} kg</span></div>
+      <div class="plate-result">${result.length ? result.map(value => `<span>${value}</span>`).join("") : `<span>${text("无需加片","Empty bar")}</span>`}</div>
+    </section></div>`;
+  }
+  return "";
 }
 
 function escapeHtml(value) {
@@ -1109,7 +1246,7 @@ function render() {
   if (!state.cloudReady || !state.user) {
     app.innerHTML = authGateScreen() + authSheet();
   } else {
-    app.innerHTML = (screens[state.route] || home)() + equipmentSheet() + guideSheet() + exerciseDetailSheet() + settingsSheet() + authSheet() + planDaySheet();
+    app.innerHTML = (screens[state.route] || home)() + equipmentSheet() + guideSheet() + exerciseDetailSheet() + settingsSheet() + authSheet() + planDaySheet() + workoutSheets();
   }
   bind();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -1539,15 +1676,30 @@ function bindAdvanced() {
     else set.reps = Math.max(1, Number(input.value) || 1);
     persist();
   }));
+  document.querySelectorAll("[data-adjust-set]").forEach(button => button.addEventListener("click", () => {
+    const draft = state.workoutDraft[button.dataset.adjustSet];
+    const set = draft?.sets?.[Number(button.dataset.setIndex)];
+    if (!set) return;
+    const field = button.dataset.field;
+    const minimum = field === "reps" ? 1 : 0;
+    set[field] = Math.max(minimum, Number(set[field] || 0) + Number(button.dataset.delta));
+    persist();
+    render();
+  }));
   document.querySelectorAll("[data-complete-set]").forEach(button => button.addEventListener("click", () => {
     const id = button.dataset.completeSet;
     const sets = state.workoutDraft[id]?.sets || [];
     const set = sets[Number(button.dataset.setIndex)];
     if (!set) return;
-    set.completed = !set.completed;
-    const exerciseComplete = sets.length > 0 && sets.every(item => item.completed);
-    exerciseComplete ? state.completedExercises.add(id) : state.completedExercises.delete(id);
-    persist();
+    if (set.completed) {
+      set.completed = false;
+      state.completedExercises.delete(id);
+      persist();
+      render();
+      return;
+    }
+    state.pendingSet = { id, index: Number(button.dataset.setIndex) };
+    state.sheet = "set-confirm";
     render();
   }));
   document.querySelectorAll("[data-add-set]").forEach(button => button.addEventListener("click", () => {
@@ -1560,6 +1712,36 @@ function bindAdvanced() {
     render();
   }));
   document.querySelectorAll("[data-toggle-workout-timer]").forEach(button => button.addEventListener("click", toggleWorkoutSession));
+  document.querySelectorAll("[data-open-workout-list]").forEach(button => button.addEventListener("click", () => {
+    state.sheet = "workout-list";
+    render();
+  }));
+  document.querySelectorAll("[data-switch-exercise]").forEach(button => button.addEventListener("click", () => {
+    state.currentExerciseId = button.dataset.switchExercise;
+    state.sheet = null;
+    persist();
+    render();
+  }));
+  document.querySelector("[data-confirm-set]")?.addEventListener("click", confirmWorkoutSet);
+  document.querySelectorAll("[data-confirm-adjust]").forEach(button => button.addEventListener("click", () => {
+    const input = document.querySelector(button.dataset.confirmAdjust === "weight" ? "[data-confirm-weight]" : "[data-confirm-reps]");
+    if (!input) return;
+    const minimum = button.dataset.confirmAdjust === "reps" ? 1 : 0;
+    input.value = Math.max(minimum, Number(input.value || 0) + Number(button.dataset.delta));
+  }));
+  document.querySelector("[data-skip-rest]")?.addEventListener("click", finishRest);
+  document.querySelector("[data-add-rest]")?.addEventListener("click", () => {
+    const base = Math.max(Date.now(), new Date(state.restUntil || Date.now()).getTime());
+    state.restUntil = new Date(base + 20000).toISOString();
+    persist();
+    startWorkoutTicker();
+    render();
+  });
+  document.querySelectorAll("[data-plate-calculator]").forEach(button => button.addEventListener("click", () => {
+    state.currentExerciseId = button.dataset.plateCalculator;
+    state.sheet = "plate-calculator";
+    render();
+  }));
   document.querySelectorAll("[data-complete-exercise]").forEach(button => button.addEventListener("click", () => {
     const id = button.dataset.completeExercise;
     const shouldComplete = !state.completedExercises.has(id);
@@ -1743,6 +1925,9 @@ function clearAccountState() {
   state.activeWorkout = false;
   state.workoutStartedAt = null;
   state.workoutDraft = {};
+  state.currentExerciseId = null;
+  state.restUntil = null;
+  state.pendingSet = null;
   state.route = "home";
   state.routeStack = [];
 }
@@ -1865,11 +2050,48 @@ let workoutTimerInterval = null;
 
 function startWorkoutTicker() {
   clearInterval(workoutTimerInterval);
-  if (!state.activeWorkout) return;
+  if (!state.activeWorkout && !state.restUntil) return;
   workoutTimerInterval = setInterval(() => {
     const timer = document.querySelector("[data-workout-timer]");
     if (timer) timer.textContent = formatDuration(elapsedWorkoutSeconds());
+    const restTimer = document.querySelector("[data-rest-timer]");
+    const restSeconds = remainingRestSeconds();
+    if (restTimer) restTimer.textContent = restSeconds;
+    if (state.restUntil && restSeconds <= 0) finishRest();
   }, 1000);
+}
+
+function finishRest() {
+  state.restUntil = null;
+  persist();
+  render();
+}
+
+function confirmWorkoutSet() {
+  if (!state.pendingSet) return;
+  const { id, index } = state.pendingSet;
+  const sets = state.workoutDraft[id]?.sets || [];
+  const set = sets[index];
+  if (!set) return;
+  set.weight = Math.max(0, Number(document.querySelector("[data-confirm-weight]")?.value) || 0);
+  set.reps = Math.max(1, Number(document.querySelector("[data-confirm-reps]")?.value) || 1);
+  set.completed = true;
+  const exerciseComplete = sets.every(item => item.completed);
+  exerciseComplete ? state.completedExercises.add(id) : state.completedExercises.delete(id);
+  if (!state.activeWorkout) {
+    state.activeWorkout = true;
+    state.workoutStartedAt = new Date().toISOString();
+  }
+  state.restUntil = new Date(Date.now() + state.restDuration * 1000).toISOString();
+  state.pendingSet = null;
+  state.sheet = null;
+  if (exerciseComplete) {
+    const chosen = exerciseLibrary.filter(item => state.selectedExercises.has(item.id));
+    state.currentExerciseId = nextIncompleteExercise(chosen, id)?.id || id;
+  }
+  persist();
+  render();
+  toast(text("本组已记录", "Set logged"));
 }
 
 async function toggleWorkoutSession() {
@@ -1881,6 +2103,7 @@ async function toggleWorkoutSession() {
     Object.values(state.workoutDraft).forEach(draft => draft.sets?.forEach(set => { set.completed = false; }));
     state.activeWorkout = true;
     state.workoutStartedAt = new Date().toISOString();
+    state.restUntil = null;
     persist();
     render();
     toast(text("训练计时已开始", "Workout timer started"));
@@ -1891,6 +2114,8 @@ async function toggleWorkoutSession() {
     state.activeWorkout = false;
     state.workoutStartedAt = null;
     state.workoutDraft = {};
+    state.restUntil = null;
+    state.currentExerciseId = null;
     state.completedExercises = new Set();
     persist();
     navigate("progress");
@@ -2027,6 +2252,7 @@ function closeSheet(afterClose) {
   const layer = document.querySelector(".sheet-layer");
   layer?.classList.remove("open");
   setTimeout(() => {
+    if (state.sheet === "set-confirm") state.pendingSet = null;
     state.sheet = null;
     if (afterClose) afterClose();
     else render();
@@ -2045,4 +2271,4 @@ function editIngredient(index) {
 }
 
 render();
-loadCloudSession();
+if (!localPreview) loadCloudSession();
